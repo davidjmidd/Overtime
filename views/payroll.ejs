@@ -1,0 +1,339 @@
+<%- include('layout-head', { title: 'Payroll' }) %>
+<%- include('navbar') %>
+<div class="container">
+  <%- include('flash') %>
+
+  <div class="page-header">
+    <h1>Payroll Management</h1>
+    <div style="display:flex; gap:0.5rem;">
+      <a href="/payroll/import" class="btn btn-primary">Import Excel</a>
+      <a href="/payroll/export?month=<%= monthFilter %>" class="btn btn-outline">Export CSV</a>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <form method="GET" action="/payroll" style="display:flex; gap:0.5rem; align-items:center;">
+      <label style="font-weight:500; font-size:0.9rem;">Filter by month:</label>
+      <select name="month" onchange="this.form.submit()">
+        <option value="">All months</option>
+        <% months.forEach(m => { %>
+          <option value="<%= m.month %>" <%= monthFilter === m.month ? 'selected' : '' %>><%= m.month %></option>
+        <% }) %>
+      </select>
+    </form>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('summary')">Staff Summary</button>
+    <button class="tab" onclick="showTab('overtime')">All Overtime (<%= overtime.length %>)</button>
+    <button class="tab" onclick="showTab('nights')">All Nights Away (<%= nights.length %>)</button>
+    <button class="tab" onclick="showTab('rates')">Manage Rates</button>
+    <button class="tab" onclick="showTab('mark-paid')">Mark as Paid</button>
+  </div>
+
+  <div id="tab-summary" class="tab-content active">
+    <div class="card">
+      <h2>Staff Summary</h2>
+      <% if (staffSummary.length === 0) { %>
+        <div class="empty-state">No data found.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>OT Rate</th>
+                <th>Total Hours</th>
+                <th>Pending</th>
+                <th>Approved</th>
+                <th>Est. OT Cost</th>
+                <th>Nights</th>
+                <th>Night Rate</th>
+                <th>Est. Nights Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% let grandTotalOT = 0, grandTotalNA = 0; %>
+              <% staffSummary.forEach(s => { %>
+                <% const otCost = s.approved_hours * (s.overtime_rate || 0); grandTotalOT += otCost; %>
+                <% const naCost = s.approved_nights * (s.nights_away_rate || 25); grandTotalNA += naCost; %>
+              <tr>
+                <td><strong><%= s.name %></strong></td>
+                <td>&pound;<%= (s.overtime_rate || 0).toFixed(2) %>/hr</td>
+                <td><%= s.total_hours.toFixed(1) %></td>
+                <td><%= s.pending_hours.toFixed(1) %></td>
+                <td><%= s.approved_hours.toFixed(1) %></td>
+                <td>&pound;<%= otCost.toFixed(2) %></td>
+                <td><%= s.total_nights %></td>
+                <td>&pound;<%= (s.nights_away_rate || 25).toFixed(2) %></td>
+                <td>&pound;<%= naCost.toFixed(2) %></td>
+              </tr>
+              <% }) %>
+              <tr style="font-weight:700; border-top:2px solid var(--text);">
+                <td>TOTAL</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td>&pound;<%= grandTotalOT.toFixed(2) %></td>
+                <td></td>
+                <td></td>
+                <td>&pound;<%= grandTotalNA.toFixed(2) %></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div id="tab-overtime" class="tab-content">
+    <div class="card">
+      <h2>All Overtime Entries</h2>
+      <% if (overtime.length === 0) { %>
+        <div class="empty-state">No overtime entries found.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Date</th>
+                <th>Hours</th>
+                <th>Weekend</th>
+                <th>Rate</th>
+                <th>Amount</th>
+                <th>Client</th>
+                <th>Ticket</th>
+                <th>Description</th>
+                <th>Status</th>
+                <th>Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% overtime.forEach(e => { %>
+                <% const rate = e.overtime_rate || 0; %>
+                <% const amount = e.is_weekend ? e.hours * rate * 1.5 : e.hours * rate; %>
+              <tr>
+                <td><%= e.submitter_name %></td>
+                <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                <td><%= e.hours %></td>
+                <td><%= e.is_weekend ? 'Yes (1.5x)' : 'No' %></td>
+                <td>&pound;<%= rate.toFixed(2) %></td>
+                <td>&pound;<%= amount.toFixed(2) %></td>
+                <td><%= e.client || '-' %></td>
+                <td><%= e.halo_ticket_ref || '-' %></td>
+                <td><%= e.description || '-' %></td>
+                <td>
+                  <% if (e.approved) { %>
+                    <span class="badge badge-approved">Approved</span>
+                  <% } else { %>
+                    <span class="badge badge-pending">Pending</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (e.paid) { %>
+                    <span class="badge badge-paid"><%= e.paid_month %></span>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div id="tab-nights" class="tab-content">
+    <div class="card">
+      <h2>All Nights Away</h2>
+      <% if (nights.length === 0) { %>
+        <div class="empty-state">No nights away entries found.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Rate</th>
+                <th>Status</th>
+                <th>Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% nights.forEach(e => { %>
+              <tr>
+                <td><%= e.submitter_name %></td>
+                <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                <td><%= e.description || '-' %></td>
+                <td>&pound;<%= (e.nights_away_rate || e.rate || 25).toFixed(2) %></td>
+                <td>
+                  <% if (e.approved) { %>
+                    <span class="badge badge-approved">Approved</span>
+                  <% } else { %>
+                    <span class="badge badge-pending">Pending</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (e.paid) { %>
+                    <span class="badge badge-paid"><%= e.paid_month %></span>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div id="tab-rates" class="tab-content">
+    <div class="card">
+      <h2>Manage Staff Rates</h2>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>OT Rate (&pound;/hr)</th>
+              <th>Field Engineer?</th>
+              <th>Night Rate</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% users.forEach(u => { %>
+            <tr>
+              <form method="POST" action="/payroll/update-rate">
+                <input type="hidden" name="user_id" value="<%= u.id %>">
+                <td><%= u.name %></td>
+                <td><%= u.email %></td>
+                <td><%= u.role %></td>
+                <td><input type="number" name="overtime_rate" value="<%= u.overtime_rate || 0 %>" step="0.01" min="0" style="width:80px; padding:0.3rem;"></td>
+                <td>
+                  <select name="is_field_engineer" style="padding:0.3rem;">
+                    <option value="0" <%= !u.is_field_engineer ? 'selected' : '' %>>No (&pound;25)</option>
+                    <option value="1" <%= u.is_field_engineer ? 'selected' : '' %>>Yes (&pound;50)</option>
+                  </select>
+                </td>
+                <td>&pound;<%= u.is_field_engineer ? '50.00' : '25.00' %></td>
+                <td><button type="submit" class="btn btn-primary btn-sm">Save</button></td>
+              </form>
+            </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-mark-paid" class="tab-content">
+    <div class="card">
+      <h2>Mark Entries as Paid</h2>
+      <%
+        const unpaidOT = overtime.filter(e => !e.paid && e.approved);
+        const unpaidNA = nights.filter(e => !e.paid && e.approved);
+      %>
+      <% if (unpaidOT.length === 0 && unpaidNA.length === 0) { %>
+        <div class="empty-state">No approved unpaid entries found.</div>
+      <% } else { %>
+        <% if (unpaidOT.length > 0) { %>
+          <h3 style="margin:1rem 0 0.5rem; font-size:1rem;">Approved Unpaid Overtime (<%= unpaidOT.length %>)</h3>
+          <form method="POST" action="/payroll/mark-paid">
+            <input type="hidden" name="type" value="overtime">
+            <div class="form-group" style="max-width:300px;">
+              <label>Paid Month</label>
+              <input type="text" name="paid_month" placeholder="e.g. November 2025" required>
+            </div>
+            <div class="table-wrapper" style="margin-bottom:1rem;">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="checkbox-cell"><input type="checkbox" onclick="toggleAll(this, 'ot-check')"></th>
+                    <th>Name</th>
+                    <th>Date</th>
+                    <th>Hours</th>
+                    <th>Weekend</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% unpaidOT.forEach(e => { %>
+                    <% const rate = e.overtime_rate || 0; %>
+                    <% const amount = e.is_weekend ? e.hours * rate * 1.5 : e.hours * rate; %>
+                  <tr>
+                    <td class="checkbox-cell"><input type="checkbox" name="entry_ids" value="<%= e.id %>" class="ot-check"></td>
+                    <td><%= e.submitter_name %></td>
+                    <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                    <td><%= e.hours %></td>
+                    <td><%= e.is_weekend ? 'Yes' : 'No' %></td>
+                    <td>&pound;<%= amount.toFixed(2) %></td>
+                  </tr>
+                  <% }) %>
+                </tbody>
+              </table>
+            </div>
+            <button type="submit" class="btn btn-success">Mark Selected as Paid</button>
+          </form>
+        <% } %>
+
+        <% if (unpaidNA.length > 0) { %>
+          <h3 style="margin:1.5rem 0 0.5rem; font-size:1rem;">Approved Unpaid Nights Away (<%= unpaidNA.length %>)</h3>
+          <form method="POST" action="/payroll/mark-paid">
+            <input type="hidden" name="type" value="nights">
+            <div class="form-group" style="max-width:300px;">
+              <label>Paid Month</label>
+              <input type="text" name="paid_month" placeholder="e.g. November 2025" required>
+            </div>
+            <div class="table-wrapper" style="margin-bottom:1rem;">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="checkbox-cell"><input type="checkbox" onclick="toggleAll(this, 'na-check')"></th>
+                    <th>Name</th>
+                    <th>Date</th>
+                    <th>Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% unpaidNA.forEach(e => { %>
+                  <tr>
+                    <td class="checkbox-cell"><input type="checkbox" name="entry_ids" value="<%= e.id %>" class="na-check"></td>
+                    <td><%= e.submitter_name %></td>
+                    <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                    <td>&pound;<%= (e.nights_away_rate || e.rate || 25).toFixed(2) %></td>
+                  </tr>
+                  <% }) %>
+                </tbody>
+              </table>
+            </div>
+            <button type="submit" class="btn btn-success">Mark Selected as Paid</button>
+          </form>
+        <% } %>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+function toggleAll(source, className) {
+  document.querySelectorAll('.' + className).forEach(cb => cb.checked = source.checked);
+}
+</script>
+</body></html>

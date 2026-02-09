@@ -1,0 +1,233 @@
+<%- include('layout-head', { title: 'Manager' }) %>
+<%- include('navbar') %>
+<div class="container">
+  <%- include('flash') %>
+
+  <div class="page-header">
+    <h1>Manager Approval</h1>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value"><%= pendingOvertime.length %></div>
+      <div class="stat-label">Pending Overtime</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= pendingNights.length %></div>
+      <div class="stat-label">Pending Nights Away</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= approvedOvertime.length %></div>
+      <div class="stat-label">Approved Overtime</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= approvedNights.length %></div>
+      <div class="stat-label">Approved Nights Away</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('pending-ot')">Pending Overtime (<%= pendingOvertime.length %>)</button>
+    <button class="tab" onclick="showTab('pending-na')">Pending Nights (<%= pendingNights.length %>)</button>
+    <button class="tab" onclick="showTab('approved')">Approved History</button>
+  </div>
+
+  <div id="tab-pending-ot" class="tab-content active">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="border:none; margin:0; padding:0;">Pending Overtime Approval</h2>
+        <% if (pendingOvertime.length > 0) { %>
+          <form method="POST" action="/manager/approve-all/overtime" style="display:inline;">
+            <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Approve all pending overtime entries?')">
+              Approve All
+            </button>
+          </form>
+        <% } %>
+      </div>
+      <% if (pendingOvertime.length === 0) { %>
+        <div class="empty-state">No pending overtime entries.</div>
+      <% } else { %>
+        <%
+          // Group by submitter
+          const grouped = {};
+          pendingOvertime.forEach(e => {
+            if (!grouped[e.submitter_name]) grouped[e.submitter_name] = [];
+            grouped[e.submitter_name].push(e);
+          });
+        %>
+        <% Object.keys(grouped).forEach(name => { %>
+          <h3 style="margin: 1rem 0 0.5rem; font-size: 1rem;"><%= name %></h3>
+          <div class="table-wrapper" style="margin-bottom:1rem;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Hours</th>
+                  <th>Weekend</th>
+                  <th>Client</th>
+                  <th>Description</th>
+                  <th>Ticket</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% grouped[name].forEach(e => { %>
+                <tr>
+                  <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                  <td><%= e.hours %></td>
+                  <td><%= e.is_weekend ? 'Yes' : 'No' %></td>
+                  <td><%= e.client || '-' %></td>
+                  <td><%= e.description || '-' %></td>
+                  <td><%= e.halo_ticket_ref || '-' %></td>
+                  <td>
+                    <form method="POST" action="/manager/approve/overtime/<%= e.id %>" style="display:inline;">
+                      <button type="submit" class="btn btn-success btn-sm">Approve</button>
+                    </form>
+                  </td>
+                </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        <% }) %>
+      <% } %>
+    </div>
+  </div>
+
+  <div id="tab-pending-na" class="tab-content">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="border:none; margin:0; padding:0;">Pending Nights Away Approval</h2>
+        <% if (pendingNights.length > 0) { %>
+          <form method="POST" action="/manager/approve-all/nights" style="display:inline;">
+            <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Approve all pending nights away entries?')">
+              Approve All
+            </button>
+          </form>
+        <% } %>
+      </div>
+      <% if (pendingNights.length === 0) { %>
+        <div class="empty-state">No pending nights away entries.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Rate</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% pendingNights.forEach(e => { %>
+              <tr>
+                <td><%= e.submitter_name %></td>
+                <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                <td><%= e.description || '-' %></td>
+                <td>&pound;<%= e.rate.toFixed(2) %></td>
+                <td>
+                  <form method="POST" action="/manager/approve/night/<%= e.id %>" style="display:inline;">
+                    <button type="submit" class="btn btn-success btn-sm">Approve</button>
+                  </form>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div id="tab-approved" class="tab-content">
+    <div class="card">
+      <h2>Approved Overtime History</h2>
+      <% if (approvedOvertime.length === 0 && approvedNights.length === 0) { %>
+        <div class="empty-state">No approved entries yet.</div>
+      <% } else { %>
+        <% if (approvedOvertime.length > 0) { %>
+        <h3 style="margin-bottom:0.5rem; font-size:0.95rem;">Overtime</h3>
+        <div class="table-wrapper" style="margin-bottom:1rem;">
+          <table>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>Date</th>
+                <th>Hours</th>
+                <th>Weekend</th>
+                <th>Client</th>
+                <th>Description</th>
+                <th>Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% approvedOvertime.forEach(e => { %>
+              <tr>
+                <td><%= e.submitter_name %></td>
+                <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                <td><%= e.hours %></td>
+                <td><%= e.is_weekend ? 'Yes' : 'No' %></td>
+                <td><%= e.client || '-' %></td>
+                <td><%= e.description || '-' %></td>
+                <td>
+                  <% if (e.paid) { %>
+                    <span class="badge badge-paid">Paid - <%= e.paid_month %></span>
+                  <% } else { %>
+                    <span class="badge badge-approved">Unpaid</span>
+                  <% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+        <% } %>
+        <% if (approvedNights.length > 0) { %>
+        <h3 style="margin-bottom:0.5rem; font-size:0.95rem;">Nights Away</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Rate</th>
+                <th>Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% approvedNights.forEach(e => { %>
+              <tr>
+                <td><%= e.submitter_name %></td>
+                <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                <td><%= e.description || '-' %></td>
+                <td>&pound;<%= e.rate.toFixed(2) %></td>
+                <td>
+                  <% if (e.paid) { %>
+                    <span class="badge badge-paid">Paid - <%= e.paid_month %></span>
+                  <% } else { %>
+                    <span class="badge badge-approved">Unpaid</span>
+                  <% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+        <% } %>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body></html>

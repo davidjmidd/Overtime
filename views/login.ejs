@@ -1,0 +1,18 @@
+<%- include('layout-head', { title: 'Login' }) %>
+<div class="login-container">
+  <h1>Flotek Overtime</h1>
+  <p class="subtitle">Sign in with your Flotek email</p>
+  <%- include('flash') %>
+  <form method="POST" action="/login">
+    <div class="form-group">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" placeholder="firstname.lastname@flotek.io" required>
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Your first name" required>
+    </div>
+    <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+  </form>
+</div>
+</body></html>

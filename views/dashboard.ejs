@@ -1,0 +1,171 @@
+<%- include('layout-head', { title: 'Dashboard' }) %>
+<%- include('navbar') %>
+<div class="container">
+  <%- include('flash') %>
+
+  <div class="page-header">
+    <h1>My Overtime & Nights Away</h1>
+  </div>
+
+  <%
+    const totalHours = overtime.reduce((s,e) => s + e.hours, 0);
+    const pendingCount = overtime.filter(e => !e.approved).length;
+    const approvedCount = overtime.filter(e => e.approved && !e.paid).length;
+    const paidCount = overtime.filter(e => e.paid).length;
+    const rate = staffUser ? staffUser.overtime_rate : 0;
+  %>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value"><%= totalHours.toFixed(1) %></div>
+      <div class="stat-label">Total Hours</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= pendingCount %></div>
+      <div class="stat-label">Pending Approval</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= approvedCount %></div>
+      <div class="stat-label">Approved (Unpaid)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= paidCount %></div>
+      <div class="stat-label">Paid</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('overtime')">Overtime (<%= overtime.length %>)</button>
+    <button class="tab" onclick="showTab('nights')">Nights Away (<%= nights.length %>)</button>
+    <button class="tab" onclick="showTab('password')">Change Password</button>
+  </div>
+
+  <div id="tab-overtime" class="tab-content active">
+    <div class="card">
+      <h2>Overtime Entries</h2>
+      <% if (overtime.length === 0) { %>
+        <div class="empty-state">No overtime entries found.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Hours</th>
+                <th>Weekend</th>
+                <th>Client</th>
+                <th>Description</th>
+                <th>Ticket</th>
+                <th>Status</th>
+                <th>Payment</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% overtime.forEach(e => { %>
+              <tr>
+                <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                <td><%= e.hours %></td>
+                <td><%= e.is_weekend ? 'Yes (1.5x)' : 'No' %></td>
+                <td><%= e.client || '-' %></td>
+                <td><%= e.description || '-' %></td>
+                <td><%= e.halo_ticket_ref || '-' %></td>
+                <td>
+                  <% if (e.paid) { %>
+                    <span class="badge badge-paid">Paid</span>
+                  <% } else if (e.approved) { %>
+                    <span class="badge badge-approved">Approved</span>
+                  <% } else { %>
+                    <span class="badge badge-pending">Pending</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (e.paid && e.actual_paid_month) { %>
+                    <%= e.actual_paid_month %>
+                  <% } else if (!e.paid) { %>
+                    <span style="color:var(--text-light); font-size:0.8rem;">Est. <%= e.expected_paid_month %></span>
+                  <% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div id="tab-nights" class="tab-content">
+    <div class="card">
+      <h2>Nights Away</h2>
+      <% if (nights.length === 0) { %>
+        <div class="empty-state">No nights away entries found.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Rate</th>
+                <th>Status</th>
+                <th>Payment</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% nights.forEach(e => { %>
+              <tr>
+                <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
+                <td><%= e.description || '-' %></td>
+                <td>&pound;<%= e.rate.toFixed(2) %></td>
+                <td>
+                  <% if (e.paid) { %>
+                    <span class="badge badge-paid">Paid</span>
+                  <% } else if (e.approved) { %>
+                    <span class="badge badge-approved">Approved</span>
+                  <% } else { %>
+                    <span class="badge badge-pending">Pending</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (e.paid && e.actual_paid_month) { %>
+                    <%= e.actual_paid_month %>
+                  <% } else if (!e.paid) { %>
+                    <span style="color:var(--text-light); font-size:0.8rem;">Est. <%= e.expected_paid_month %></span>
+                  <% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <div id="tab-password" class="tab-content">
+    <div class="card" style="max-width:400px;">
+      <h2>Change Password</h2>
+      <form method="POST" action="/change-password">
+        <div class="form-group">
+          <label>Current Password</label>
+          <input type="password" name="current_password" required>
+        </div>
+        <div class="form-group">
+          <label>New Password</label>
+          <input type="password" name="new_password" required minlength="3">
+        </div>
+        <button type="submit" class="btn btn-primary">Change Password</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body></html>

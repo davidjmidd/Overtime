@@ -1,0 +1,45 @@
+<%- include('layout-head', { title: 'Import' }) %>
+<%- include('navbar') %>
+<div class="container">
+  <%- include('flash') %>
+
+  <div class="page-header">
+    <h1>Import Excel Data</h1>
+  </div>
+
+  <div class="card" style="max-width:600px;">
+    <h2>Upload Microsoft Forms Export</h2>
+    <p style="color:var(--text-light); margin-bottom:1rem; font-size:0.9rem;">
+      Upload the Excel file exported from your Microsoft Forms overtime submissions.
+      Duplicate entries (same submission ID) will be skipped automatically.
+    </p>
+
+    <form method="POST" action="/payroll/import" enctype="multipart/form-data">
+      <div class="form-group">
+        <label>Excel File (.xlsx)</label>
+        <input type="file" name="file" accept=".xlsx,.xls,.csv" required style="padding:0.5rem;">
+      </div>
+      <button type="submit" class="btn btn-primary">Import</button>
+      <a href="/payroll" class="btn btn-outline" style="margin-left:0.5rem;">Cancel</a>
+    </form>
+
+    <div style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid var(--border);">
+      <h3 style="font-size:0.9rem; margin-bottom:0.5rem;">Expected Columns</h3>
+      <ul style="font-size:0.85rem; color:var(--text-light); padding-left:1.25rem;">
+        <li><strong>Id</strong> - Unique submission reference</li>
+        <li><strong>Start time</strong> - Date submitted</li>
+        <li><strong>Email</strong> - Submitter email</li>
+        <li><strong>Name</strong> - Submitter name</li>
+        <li><strong>Date</strong> - Date of overtime</li>
+        <li><strong>Time (hours)</strong> - Hours worked</li>
+        <li><strong>Halo Ticket Ref</strong> - Ticket reference</li>
+        <li><strong>CEMEX?</strong> - Client allocation</li>
+        <li><strong>Brief description of work done</strong> - Work description</li>
+        <li><strong>Approved by</strong> - Approver name</li>
+        <li><strong>PAID</strong> - Payment month (if paid)</li>
+        <li><strong>Weekend</strong> - Sunday rate indicator</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body></html>
