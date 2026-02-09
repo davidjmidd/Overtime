@@ -1,15 +1,33 @@
 :root {
-  --primary: #1a73e8;
-  --primary-dark: #1557b0;
-  --success: #34a853;
-  --warning: #f9ab00;
-  --danger: #ea4335;
-  --bg: #f8f9fa;
+  /* Flotek Brand Colours */
+  --plum: #8a3b8e;
+  --plum-light: #ac83bb;
+  --plum-lighter: #c4aacf;
+  --plum-lightest: #f5edf8;
+  --plum-dark: #50295e;
+  --russian-violet: #4b1c4b;
+  --russian-violet-dark: #28162e;
+  --orange: #ee792c;
+  --orange-light: #e69e63;
+  --orange-lightest: #fdf0e0;
+  --orange-dark: #bd6025;
+  --green: #99bfaa;
+  --green-light: #b2cfbb;
+  --green-lightest: #e0f0e6;
+  --green-dark: #648b78;
+  --green-darkest: #314039;
+
+  --primary: #4b1c4b;
+  --primary-dark: #28162e;
+  --success: #648b78;
+  --warning: #ee792c;
+  --danger: #bd6025;
+  --bg: #f5edf8;
   --card-bg: #ffffff;
-  --text: #202124;
-  --text-light: #5f6368;
-  --border: #dadce0;
-  --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+  --text: #28162e;
+  --text-light: #704a70;
+  --border: #c4aacf;
+  --shadow: 0 1px 3px rgba(75,28,75,0.1), 0 1px 2px rgba(75,28,75,0.06);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -73,8 +91,8 @@ body {
 }
 .form-group input:focus, .form-group select:focus {
   outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(26,115,232,0.1);
+  border-color: var(--plum);
+  box-shadow: 0 0 0 3px rgba(138,59,142,0.15);
 }
 
 .btn {
@@ -92,7 +110,7 @@ body {
 .btn-primary { background: var(--primary); color: white; }
 .btn-primary:hover { background: var(--primary-dark); }
 .btn-success { background: var(--success); color: white; }
-.btn-success:hover { background: #2d9249; }
+.btn-success:hover { background: var(--green-darkest); }
 .btn-warning { background: var(--warning); color: var(--text); }
 .btn-danger { background: var(--danger); color: white; }
 .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.8rem; }
@@ -110,8 +128,8 @@ body {
   margin-bottom: 1rem;
   font-size: 0.9rem;
 }
-.alert-error { background: #fce8e6; color: var(--danger); border: 1px solid #fcd4d0; }
-.alert-success { background: #e6f4ea; color: var(--success); border: 1px solid #ceead6; }
+.alert-error { background: var(--orange-lightest); color: var(--orange-dark); border: 1px solid var(--orange-light); }
+.alert-success { background: var(--green-lightest); color: var(--green-dark); border: 1px solid var(--green-light); }
 
 .card {
   background: var(--card-bg);
@@ -140,7 +158,7 @@ body {
   box-shadow: var(--shadow);
   text-align: center;
 }
-.stat-card .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--primary); }
+.stat-card .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--plum); }
 .stat-card .stat-label { font-size: 0.8rem; color: var(--text-light); margin-top: 0.25rem; }
 
 table {
@@ -163,7 +181,7 @@ th {
   position: sticky;
   top: 0;
 }
-tr:hover { background: #f1f3f4; }
+tr:hover { background: var(--plum-lightest); }
 
 .table-wrapper {
   overflow-x: auto;
@@ -178,9 +196,9 @@ tr:hover { background: #f1f3f4; }
   font-size: 0.75rem;
   font-weight: 600;
 }
-.badge-paid { background: #e6f4ea; color: #137333; }
-.badge-approved { background: #e8f0fe; color: #1a73e8; }
-.badge-pending { background: #fef7e0; color: #b06000; }
+.badge-paid { background: var(--green-lightest); color: var(--green-darkest); }
+.badge-approved { background: var(--plum-lightest); color: var(--plum); }
+.badge-pending { background: var(--orange-lightest); color: var(--orange-dark); }
 
 .filter-bar {
   display: flex;
@@ -214,7 +232,7 @@ tr:hover { background: #f1f3f4; }
   margin-bottom: -2px;
   transition: color 0.2s, border-color 0.2s;
 }
-.tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab.active { color: var(--plum); border-bottom-color: var(--orange); }
 .tab:hover { color: var(--text); }
 
 .tab-content { display: none; }
