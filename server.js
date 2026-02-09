@@ -11,6 +11,13 @@ const { db, ensureUser, promoteToManager, getExpectedPaidMonth } = require('./db
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Auto-seed with demo data if DB is empty (no staff users yet)
+const staffCount = db.prepare("SELECT COUNT(*) as c FROM users WHERE role != 'payroll'").get().c;
+if (staffCount === 0) {
+  console.log('Empty database detected - seeding demo data...');
+  require('./seed');
+}
+
 // Multer for file uploads
 const upload = multer({ dest: 'uploads/' });
 
