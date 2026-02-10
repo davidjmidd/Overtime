@@ -9,7 +9,8 @@
 
   <%
     const totalHours = overtime.reduce((s,e) => s + e.hours, 0);
-    const pendingCount = overtime.filter(e => !e.approved).length;
+    const pendingCount = overtime.filter(e => !e.approved && !e.rejection_comment).length;
+    const rejectedCount = overtime.filter(e => !e.approved && e.rejection_comment).length;
     const approvedCount = overtime.filter(e => e.approved && !e.paid).length;
     const paidCount = overtime.filter(e => e.paid).length;
     const rate = staffUser ? staffUser.overtime_rate : 0;
@@ -24,6 +25,12 @@
       <div class="stat-value"><%= pendingCount %></div>
       <div class="stat-label">Pending Approval</div>
     </div>
+    <% if (rejectedCount > 0) { %>
+    <div class="stat-card">
+      <div class="stat-value" style="color:var(--danger);"><%= rejectedCount %></div>
+      <div class="stat-label">Returned for Review</div>
+    </div>
+    <% } %>
     <div class="stat-card">
       <div class="stat-value"><%= approvedCount %></div>
       <div class="stat-label">Approved (Unpaid)</div>
@@ -36,6 +43,7 @@
 
   <div class="tabs">
     <button class="tab active" onclick="showTab('overtime')">Overtime (<%= overtime.length %>)</button>
+    <button class="tab" onclick="showTab('submit')">Submit Overtime</button>
     <button class="tab" onclick="showTab('nights')">Nights Away (<%= nights.length %>)</button>
     <button class="tab" onclick="showTab('password')">Change Password</button>
   </div>
@@ -44,7 +52,7 @@
     <div class="card">
       <h2>Overtime Entries</h2>
       <% if (overtime.length === 0) { %>
-        <div class="empty-state">No overtime entries found.</div>
+        <div class="empty-state">No overtime entries found. Use the "Submit Overtime" tab to add one.</div>
       <% } else { %>
         <div class="table-wrapper">
           <table>
@@ -58,11 +66,12 @@
                 <th>Ticket</th>
                 <th>Status</th>
                 <th>Payment</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               <% overtime.forEach(e => { %>
-              <tr>
+              <tr<% if (e.rejection_comment) { %> style="background:var(--orange-lightest);"<% } %>>
                 <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
                 <td><%= e.hours %></td>
                 <td><%= e.is_weekend ? 'Yes (1.5x)' : 'No' %></td>
@@ -74,6 +83,11 @@
                     <span class="badge badge-paid">Paid</span>
                   <% } else if (e.approved) { %>
                     <span class="badge badge-approved">Approved</span>
+                  <% } else if (e.rejection_comment) { %>
+                    <span class="badge badge-rejected">Returned</span>
+                    <div class="rejection-comment">
+                      <strong>Manager:</strong> <%= e.rejection_comment %>
+                    </div>
                   <% } else { %>
                     <span class="badge badge-pending">Pending</span>
                   <% } %>
@@ -85,12 +99,68 @@
                     <span style="color:var(--text-light); font-size:0.8rem;">Est. <%= e.expected_paid_month %></span>
                   <% } %>
                 </td>
+                <td>
+                  <% if (!e.approved && !e.paid) { %>
+                    <div style="display:flex; gap:0.25rem; flex-wrap:wrap;">
+                      <% if (e.rejection_comment) { %>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="openEditModal(<%= e.id %>, '<%= e.date %>', <%= e.hours %>, `<%= (e.halo_ticket_ref || '').replace(/`/g, '') %>`, `<%= (e.client || '').replace(/`/g, '') %>`, `<%= (e.description || '').replace(/`/g, '') %>`)">Edit & Resubmit</button>
+                      <% } %>
+                      <form method="POST" action="/dashboard/delete-overtime/<%= e.id %>" style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete this overtime entry?')">Delete</button>
+                      </form>
+                    </div>
+                  <% } else { %>
+                    -
+                  <% } %>
+                </td>
               </tr>
               <% }) %>
             </tbody>
           </table>
         </div>
       <% } %>
+    </div>
+  </div>
+
+  <div id="tab-submit" class="tab-content">
+    <div class="card" style="max-width:600px;">
+      <h2>Submit Overtime</h2>
+      <form method="POST" action="/dashboard/submit-overtime">
+        <div class="form-group">
+          <label>Date of Overtime *</label>
+          <input type="date" name="date" required>
+        </div>
+        <div class="form-group">
+          <label>Hours Worked *</label>
+          <input type="number" name="hours" step="0.5" min="0.5" max="24" required placeholder="e.g. 3.5">
+        </div>
+        <div class="form-group">
+          <label>Approved By *</label>
+          <select name="approver_email" required>
+            <option value="">Select your line manager</option>
+            <% managers.forEach(m => { %>
+              <option value="<%= m.email %>"><%= m.name %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Halo Ticket Ref</label>
+          <input type="text" name="halo_ticket_ref" placeholder="e.g. HAL-1234">
+        </div>
+        <div class="form-group">
+          <label>Client</label>
+          <select name="client">
+            <option value="">N/A</option>
+            <option value="CEMEX">CEMEX</option>
+            <option value="NHS">NHS</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Brief Description of Work Done</label>
+          <textarea name="description" rows="3" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:6px; font-size:0.95rem; font-family:inherit; resize:vertical;" placeholder="Describe the overtime work performed"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Submit for Approval</button>
+      </form>
     </div>
   </div>
 
@@ -160,6 +230,43 @@
   </div>
 </div>
 
+<!-- Edit & Resubmit Modal -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <h3>Edit & Resubmit Overtime</h3>
+    <form method="POST" id="editForm">
+      <div class="form-group">
+        <label>Date of Overtime</label>
+        <input type="date" name="date" id="edit-date" required>
+      </div>
+      <div class="form-group">
+        <label>Hours Worked</label>
+        <input type="number" name="hours" id="edit-hours" step="0.5" min="0.5" max="24" required>
+      </div>
+      <div class="form-group">
+        <label>Halo Ticket Ref</label>
+        <input type="text" name="halo_ticket_ref" id="edit-ticket">
+      </div>
+      <div class="form-group">
+        <label>Client</label>
+        <select name="client" id="edit-client">
+          <option value="">N/A</option>
+          <option value="CEMEX">CEMEX</option>
+          <option value="NHS">NHS</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea name="description" id="edit-description" rows="3" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:6px; font-size:0.95rem; font-family:inherit; resize:vertical;"></textarea>
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="submit" class="btn btn-primary">Resubmit</button>
+        <button type="button" class="btn btn-outline" onclick="closeEditModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 function showTab(name) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -167,5 +274,23 @@ function showTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   event.target.classList.add('active');
 }
+
+function openEditModal(id, date, hours, ticket, client, description) {
+  document.getElementById('editForm').action = '/dashboard/resubmit-overtime/' + id;
+  document.getElementById('edit-date').value = date;
+  document.getElementById('edit-hours').value = hours;
+  document.getElementById('edit-ticket').value = ticket;
+  document.getElementById('edit-client').value = client;
+  document.getElementById('edit-description').value = description;
+  document.getElementById('editModal').classList.add('active');
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('active');
+}
+
+document.getElementById('editModal').addEventListener('click', function(e) {
+  if (e.target === this) closeEditModal();
+});
 </script>
 </body></html>

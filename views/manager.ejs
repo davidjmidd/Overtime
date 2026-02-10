@@ -72,17 +72,27 @@
               </thead>
               <tbody>
                 <% grouped[name].forEach(e => { %>
-                <tr>
+                <tr<% if (e.rejection_comment) { %> style="background:var(--orange-lightest);"<% } %>>
                   <td><%= new Date(e.date).toLocaleDateString('en-GB') %></td>
                   <td><%= e.hours %></td>
                   <td><%= e.is_weekend ? 'Yes' : 'No' %></td>
                   <td><%= e.client || '-' %></td>
-                  <td><%= e.description || '-' %></td>
+                  <td>
+                    <%= e.description || '-' %>
+                    <% if (e.rejection_comment) { %>
+                      <div class="rejection-comment" style="margin-top:0.25rem;">
+                        <strong>Previously returned:</strong> <%= e.rejection_comment %>
+                      </div>
+                    <% } %>
+                  </td>
                   <td><%= e.halo_ticket_ref || '-' %></td>
                   <td>
-                    <form method="POST" action="/manager/approve/overtime/<%= e.id %>" style="display:inline;">
-                      <button type="submit" class="btn btn-success btn-sm">Approve</button>
-                    </form>
+                    <div style="display:flex; gap:0.25rem; flex-wrap:wrap;">
+                      <form method="POST" action="/manager/approve/overtime/<%= e.id %>" style="display:inline;">
+                        <button type="submit" class="btn btn-success btn-sm">Approve</button>
+                      </form>
+                      <button type="button" class="btn btn-warning btn-sm" onclick="openRejectModal(<%= e.id %>, '<%= e.submitter_name.replace(/'/g, "\\'") %>')">Send Back</button>
+                    </div>
                   </td>
                 </tr>
                 <% }) %>
@@ -222,6 +232,24 @@
   </div>
 </div>
 
+<!-- Reject/Send Back Modal -->
+<div class="modal-overlay" id="rejectModal">
+  <div class="modal">
+    <h3>Send Back for Review</h3>
+    <p style="color:var(--text-light); margin-bottom:1rem; font-size:0.9rem;" id="rejectStaffName"></p>
+    <form method="POST" id="rejectForm">
+      <div class="form-group">
+        <label>Comment (required) *</label>
+        <textarea name="comment" rows="3" required placeholder="Explain why this entry is being returned for review..." style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:6px; font-size:0.95rem; font-family:inherit; resize:vertical;"></textarea>
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="submit" class="btn btn-warning">Send Back</button>
+        <button type="button" class="btn btn-outline" onclick="closeRejectModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 function showTab(name) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -229,5 +257,19 @@ function showTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   event.target.classList.add('active');
 }
+
+function openRejectModal(id, staffName) {
+  document.getElementById('rejectForm').action = '/manager/reject/overtime/' + id;
+  document.getElementById('rejectStaffName').textContent = 'Returning entry for: ' + staffName;
+  document.getElementById('rejectModal').classList.add('active');
+}
+
+function closeRejectModal() {
+  document.getElementById('rejectModal').classList.remove('active');
+}
+
+document.getElementById('rejectModal').addEventListener('click', function(e) {
+  if (e.target === this) closeRejectModal();
+});
 </script>
 </body></html>

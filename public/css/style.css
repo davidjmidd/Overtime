@@ -199,6 +199,18 @@ tr:hover { background: var(--plum-lightest); }
 .badge-paid { background: var(--green-lightest); color: var(--green-darkest); }
 .badge-approved { background: var(--plum-lightest); color: var(--plum); }
 .badge-pending { background: var(--orange-lightest); color: var(--orange-dark); }
+.badge-rejected { background: #fce8e6; color: #c62828; }
+
+.rejection-comment {
+  margin-top: 0.35rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--orange-lightest);
+  border-left: 3px solid var(--orange);
+  border-radius: 0 4px 4px 0;
+  font-size: 0.8rem;
+  color: var(--orange-dark);
+  line-height: 1.4;
+}
 
 .filter-bar {
   display: flex;

@@ -74,6 +74,13 @@ function init() {
     CREATE INDEX IF NOT EXISTS idx_nights_approver ON nights_away(approver_email);
   `);
 
+  // Add rejection_comment column if not exists (migration)
+  const cols = db.prepare("PRAGMA table_info(overtime_entries)").all();
+  if (!cols.find(c => c.name === 'rejection_comment')) {
+    db.exec("ALTER TABLE overtime_entries ADD COLUMN rejection_comment TEXT");
+    db.exec("ALTER TABLE overtime_entries ADD COLUMN rejected_at TEXT");
+  }
+
   // Create default payroll user if not exists
   const payroll = db.prepare('SELECT id FROM users WHERE email = ?').get('payroll@flotek.io');
   if (!payroll) {

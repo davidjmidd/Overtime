@@ -139,7 +139,92 @@ app.get('/dashboard', requireLogin, (req, res) => {
 
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(req.session.user.email);
 
-  res.render('dashboard', { overtime, nights, staffUser: user });
+  // Get list of managers for the submit form
+  const managers = db.prepare("SELECT email, name FROM users WHERE role = 'manager' ORDER BY name").all();
+
+  res.render('dashboard', { overtime, nights, staffUser: user, managers });
+});
+
+// ============ STAFF SUBMIT OVERTIME ============
+
+app.post('/dashboard/submit-overtime', requireLogin, (req, res) => {
+  const { date, hours, halo_ticket_ref, client, description, approver_email } = req.body;
+
+  if (!date || !hours || !approver_email) {
+    req.flash('error', 'Date, hours, and approver are required');
+    return res.redirect('/dashboard');
+  }
+
+  const d = new Date(date);
+  const isWeekend = (d.getDay() === 0 || d.getDay() === 6) ? 1 : 0;
+  const approver = db.prepare('SELECT name FROM users WHERE email = ?').get(approver_email);
+
+  db.prepare(`
+    INSERT INTO overtime_entries
+    (submitter_email, submitter_name, date, hours, halo_ticket_ref, client, description, approver_email, approver_name, approved, is_weekend, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, datetime('now'))
+  `).run(
+    req.session.user.email,
+    req.session.user.name,
+    date,
+    parseFloat(hours),
+    halo_ticket_ref || '',
+    client || '',
+    description || '',
+    approver_email,
+    approver ? approver.name : '',
+    isWeekend
+  );
+
+  req.flash('success', 'Overtime submitted for approval');
+  res.redirect('/dashboard');
+});
+
+// ============ STAFF DELETE UNAPPROVED ============
+
+app.post('/dashboard/delete-overtime/:id', requireLogin, (req, res) => {
+  const entry = db.prepare('SELECT * FROM overtime_entries WHERE id = ? AND submitter_email = ?').get(
+    req.params.id, req.session.user.email
+  );
+
+  if (!entry) {
+    req.flash('error', 'Entry not found');
+    return res.redirect('/dashboard');
+  }
+  if (entry.approved || entry.paid) {
+    req.flash('error', 'Cannot delete approved or paid entries');
+    return res.redirect('/dashboard');
+  }
+
+  db.prepare('DELETE FROM overtime_entries WHERE id = ?').run(req.params.id);
+  req.flash('success', 'Overtime entry deleted');
+  res.redirect('/dashboard');
+});
+
+// ============ STAFF UPDATE & RESUBMIT ============
+
+app.post('/dashboard/resubmit-overtime/:id', requireLogin, (req, res) => {
+  const { date, hours, halo_ticket_ref, client, description } = req.body;
+  const entry = db.prepare('SELECT * FROM overtime_entries WHERE id = ? AND submitter_email = ? AND approved = 0').get(
+    req.params.id, req.session.user.email
+  );
+
+  if (!entry) {
+    req.flash('error', 'Entry not found or already approved');
+    return res.redirect('/dashboard');
+  }
+
+  const d = new Date(date);
+  const isWeekend = (d.getDay() === 0 || d.getDay() === 6) ? 1 : 0;
+
+  db.prepare(`
+    UPDATE overtime_entries
+    SET date = ?, hours = ?, halo_ticket_ref = ?, client = ?, description = ?, is_weekend = ?, rejection_comment = NULL, rejected_at = NULL
+    WHERE id = ?
+  `).run(date, parseFloat(hours), halo_ticket_ref || '', client || '', description || '', isWeekend, req.params.id);
+
+  req.flash('success', 'Overtime entry updated and resubmitted');
+  res.redirect('/dashboard');
 });
 
 // ============ MANAGER VIEW ============
@@ -205,6 +290,23 @@ app.post('/manager/approve-all/nights', requireManager, (req, res) => {
     WHERE approver_email = ? AND approved = 0
   `).run(req.session.user.email);
   req.flash('success', 'All nights away entries approved');
+  res.redirect('/manager');
+});
+
+app.post('/manager/reject/overtime/:id', requireManager, (req, res) => {
+  const { comment } = req.body;
+  if (!comment || !comment.trim()) {
+    req.flash('error', 'A comment is required when sending back for review');
+    return res.redirect('/manager');
+  }
+
+  db.prepare(`
+    UPDATE overtime_entries
+    SET approved = 0, approved_at = NULL, rejection_comment = ?, rejected_at = datetime('now')
+    WHERE id = ? AND approver_email = ?
+  `).run(comment.trim(), req.params.id, req.session.user.email);
+
+  req.flash('success', 'Entry sent back for review');
   res.redirect('/manager');
 });
 
