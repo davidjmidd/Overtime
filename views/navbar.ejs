@@ -1,18 +1,30 @@
 <% if (user) { %>
 <nav class="navbar">
-  <a href="/" class="brand">Flotek Overtime</a>
+  <a href="/" class="brand">Flotek <%= portal === 'commissions' ? 'Commissions' : 'Overtime' %></a>
   <div class="nav-links">
-    <% if (user.role === 'manager') { %>
-      <a href="/dashboard">My Overtime</a>
-      <a href="/manager">Manager</a>
-    <% } else if (user.role === 'payroll') { %>
-      <a href="/payroll">Payroll</a>
-      <a href="/payroll/import">Import</a>
+    <% if (portal === 'commissions') { %>
+      <% if (user.role === 'manager') { %>
+        <a href="/commissions/dashboard">My Commissions</a>
+        <a href="/commissions/manager">Manager</a>
+      <% } else if (user.role === 'payroll') { %>
+        <a href="/commissions/payroll">Payroll</a>
+      <% } else { %>
+        <a href="/commissions/dashboard">Dashboard</a>
+      <% } %>
     <% } else { %>
-      <a href="/dashboard">Dashboard</a>
+      <% if (user.role === 'manager') { %>
+        <a href="/dashboard">My Overtime</a>
+        <a href="/manager">Manager</a>
+      <% } else if (user.role === 'payroll') { %>
+        <a href="/payroll">Payroll</a>
+        <a href="/payroll/import">Import</a>
+      <% } else { %>
+        <a href="/dashboard">Dashboard</a>
+      <% } %>
     <% } %>
     <span style="opacity:0.7">|</span>
     <span style="font-size:0.85rem; opacity:0.8"><%= user.name %></span>
+    <a href="/">Switch Portal</a>
     <a href="/logout">Logout</a>
   </div>
 </nav>

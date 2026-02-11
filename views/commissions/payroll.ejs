@@ -1,0 +1,278 @@
+<%- include('../layout-head', { title: 'Commission Payroll' }) %>
+<%- include('../navbar') %>
+<div class="container">
+  <%- include('../flash') %>
+
+  <div class="page-header">
+    <h1>Commission Payroll</h1>
+    <div class="filter-bar" style="margin:0;">
+      <form method="GET" style="display:flex; gap:0.5rem; align-items:center;">
+        <select name="month" onchange="this.form.submit()">
+          <% months.forEach(m => { %>
+            <option value="<%= m.month %>" <%= activeMonth === m.month ? 'selected' : '' %>><%= m.month %></option>
+          <% }) %>
+        </select>
+      </form>
+      <a href="/commissions/payroll/export?month=<%= activeMonth %>" class="btn btn-outline btn-sm">Export CSV</a>
+    </div>
+  </div>
+
+  <%
+    const totalPayable = summary.reduce((s, a) => s + a.approvedDeliveredComm, 0);
+    const totalPaid = deals.filter(d => d.paid).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    const totalUnpaid = summary.reduce((s, a) => s + a.unpaidCount, 0);
+  %>
+
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value"><%= summary.length %></div>
+      <div class="stat-label">Account Managers</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= deals.length %></div>
+      <div class="stat-label">Total Deals</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">&pound;<%= totalPayable.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+      <div class="stat-label">Payable (Approved &amp; Delivered)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= totalUnpaid %></div>
+      <div class="stat-label">Unpaid Deals</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('summary')">Staff Summary</button>
+    <button class="tab" onclick="showTab('deals')">All Deals (<%= deals.length %>)</button>
+    <button class="tab" onclick="showTab('pay')">Mark as Paid</button>
+    <button class="tab" onclick="showTab('targets')">Targets</button>
+  </div>
+
+  <!-- Staff Summary -->
+  <div id="tab-summary" class="tab-content active">
+    <div class="card">
+      <h2>Commission Summary - <%= activeMonth %></h2>
+      <% if (summary.length === 0) { %>
+        <div class="empty-state">No commission data for this month.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Account Manager</th>
+                <th>Deals</th>
+                <th>Total Commission</th>
+                <th>Delivered Commission</th>
+                <th>Approved &amp; Delivered</th>
+                <th>Paid</th>
+                <th>Unpaid Ready</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% summary.forEach(s => { %>
+              <tr>
+                <td><%= s.name %></td>
+                <td><%= s.dealCount %></td>
+                <td>&pound;<%= s.totalComm.toFixed(2) %></td>
+                <td>&pound;<%= s.deliveredComm.toFixed(2) %></td>
+                <td>&pound;<%= s.approvedDeliveredComm.toFixed(2) %></td>
+                <td><%= s.paidCount %></td>
+                <td>
+                  <% if (s.unpaidCount > 0) { %>
+                    <span class="badge badge-pending"><%= s.unpaidCount %> unpaid</span>
+                  <% } else { %>
+                    <span class="badge badge-paid">All paid</span>
+                  <% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:700;">
+                <td>Total</td>
+                <td><%= deals.length %></td>
+                <td>&pound;<%= summary.reduce((s,a) => s + a.totalComm, 0).toFixed(2) %></td>
+                <td>&pound;<%= summary.reduce((s,a) => s + a.deliveredComm, 0).toFixed(2) %></td>
+                <td>&pound;<%= totalPayable.toFixed(2) %></td>
+                <td><%= summary.reduce((s,a) => s + a.paidCount, 0) %></td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- All Deals -->
+  <div id="tab-deals" class="tab-content">
+    <div class="card">
+      <h2>All Deals - <%= activeMonth %></h2>
+      <% if (deals.length === 0) { %>
+        <div class="empty-state">No deals for this month.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Staff</th>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>New</th>
+                <th>One Off GP</th>
+                <th>MRGP</th>
+                <th>Contract</th>
+                <th>Commission</th>
+                <th>Adj</th>
+                <th>Delivered</th>
+                <th>Status</th>
+                <th>Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% deals.forEach(d => { %>
+              <tr>
+                <td><%= d.account_manager_name %></td>
+                <td><%= new Date(d.deal_date).toLocaleDateString('en-GB') %></td>
+                <td><%= d.customer_name %></td>
+                <td><%= d.is_new_customer ? 'Yes' : '' %></td>
+                <td>&pound;<%= d.one_off_gp.toFixed(2) %></td>
+                <td>&pound;<%= d.mrgp.toFixed(2) %></td>
+                <td><%= d.contract_months %>m</td>
+                <td>&pound;<%= (d.total_commission + d.manual_adjustment).toFixed(2) %></td>
+                <td><%= d.manual_adjustment ? '£' + d.manual_adjustment.toFixed(2) : '-' %></td>
+                <td><span class="badge <%= d.project_delivered ? 'badge-paid' : 'badge-pending' %>"><%= d.project_delivered ? 'Yes' : 'No' %></span></td>
+                <td>
+                  <% if (d.approved) { %><span class="badge badge-approved">Approved</span>
+                  <% } else { %><span class="badge badge-pending">Pending</span><% } %>
+                </td>
+                <td>
+                  <% if (d.paid) { %><span class="badge badge-paid">Paid - <%= d.paid_month %></span>
+                  <% } else { %>-<% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- Mark as Paid -->
+  <div id="tab-pay" class="tab-content">
+    <div class="card">
+      <h2>Mark Commissions as Paid</h2>
+      <%
+        const payableDeals = deals.filter(d => d.approved && d.project_delivered && !d.paid);
+      %>
+      <% if (payableDeals.length === 0) { %>
+        <div class="empty-state">No unpaid approved &amp; delivered deals for this month.</div>
+      <% } else { %>
+        <form method="POST" action="/commissions/payroll/mark-paid">
+          <div class="form-group">
+            <label>Paid Month</label>
+            <input type="text" name="paid_month" value="<%= activeMonth %>" placeholder="e.g. January 2026" required style="max-width:250px;">
+          </div>
+          <div class="table-wrapper" style="margin-bottom:1rem;">
+            <table>
+              <thead>
+                <tr>
+                  <th class="checkbox-cell"><input type="checkbox" id="selectAll" onclick="toggleAll(this)"></th>
+                  <th>Staff</th>
+                  <th>Customer</th>
+                  <th>Date</th>
+                  <th>Commission</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% payableDeals.forEach(d => { %>
+                <tr>
+                  <td class="checkbox-cell"><input type="checkbox" name="entry_ids" value="<%= d.id %>"></td>
+                  <td><%= d.account_manager_name %></td>
+                  <td><%= d.customer_name %></td>
+                  <td><%= new Date(d.deal_date).toLocaleDateString('en-GB') %></td>
+                  <td>&pound;<%= (d.total_commission + d.manual_adjustment).toFixed(2) %></td>
+                </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+          <button type="submit" class="btn btn-success" onclick="return confirm('Mark selected deals as paid?')">Mark Selected as Paid</button>
+        </form>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- Targets -->
+  <div id="tab-targets" class="tab-content">
+    <div class="card">
+      <h2>Commission Targets - <%= activeMonth %></h2>
+      <% if (targets.length > 0) { %>
+        <div class="table-wrapper" style="margin-bottom:1.5rem;">
+          <table>
+            <thead>
+              <tr>
+                <th>Account Manager</th>
+                <th>Salary</th>
+                <th>One Off GP Target (3.5x)</th>
+                <th>MRGP Target (6.25%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% targets.forEach(t => { %>
+              <tr>
+                <td><%= t.name || t.user_email %></td>
+                <td>&pound;<%= t.salary.toLocaleString('en-GB', {minimumFractionDigits:0}) %></td>
+                <td>&pound;<%= t.one_off_gp_target.toLocaleString('en-GB', {minimumFractionDigits:0}) %></td>
+                <td>&pound;<%= t.mrgp_target.toLocaleString('en-GB', {minimumFractionDigits:0}) %></td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } else { %>
+        <p style="color:var(--text-light); margin-bottom:1rem;">No targets set for this month yet.</p>
+      <% } %>
+
+      <h3 style="margin:1rem 0 0.75rem; font-size:1rem;">Set / Update Target</h3>
+      <form method="POST" action="/commissions/payroll/set-target" style="display:flex; gap:0.5rem; align-items:flex-end; flex-wrap:wrap;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Account Manager</label>
+          <select name="user_email" required>
+            <option value="">Select...</option>
+            <% users.forEach(u => { %>
+              <option value="<%= u.email %>"><%= u.name %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Month</label>
+          <input type="text" name="month" value="<%= activeMonth %>" placeholder="e.g. January 2026" required>
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label>Annual Salary (&pound;)</label>
+          <input type="number" name="salary" step="100" placeholder="e.g. 30000" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Set Target</button>
+      </form>
+      <p style="font-size:0.8rem; color:var(--text-light); margin-top:0.5rem;">
+        One Off GP Target = Salary &times; 3.5 &nbsp;|&nbsp; MRGP Target = One Off GP Target &times; 6.25%
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+function toggleAll(source) {
+  document.querySelectorAll('input[name="entry_ids"]').forEach(cb => cb.checked = source.checked);
+}
+</script>
+</body></html>

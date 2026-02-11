@@ -72,6 +72,55 @@ function init() {
     CREATE INDEX IF NOT EXISTS idx_overtime_approver ON overtime_entries(approver_email);
     CREATE INDEX IF NOT EXISTS idx_nights_submitter ON nights_away(submitter_email);
     CREATE INDEX IF NOT EXISTS idx_nights_approver ON nights_away(approver_email);
+
+    -- Commission tables
+    CREATE TABLE IF NOT EXISTS commission_targets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_email TEXT NOT NULL,
+      month TEXT NOT NULL,
+      salary REAL NOT NULL DEFAULT 0,
+      one_off_gp_target REAL NOT NULL DEFAULT 0,
+      mrgp_target REAL NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_email, month)
+    );
+
+    CREATE TABLE IF NOT EXISTS commission_deals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_manager_email TEXT NOT NULL,
+      account_manager_name TEXT NOT NULL,
+      customer_name TEXT NOT NULL,
+      is_new_customer INTEGER DEFAULT 0,
+      deal_date TEXT NOT NULL,
+      month TEXT NOT NULL,
+      one_off_gp REAL DEFAULT 0,
+      mrgp REAL DEFAULT 0,
+      contract_months INTEGER DEFAULT 12,
+      mrgp_multiplier REAL DEFAULT 1,
+      mrgp_commission_value REAL DEFAULT 0,
+      one_off_commission_rate REAL DEFAULT 0.10,
+      one_off_commission_value REAL DEFAULT 0,
+      total_commission REAL DEFAULT 0,
+      project_delivered INTEGER DEFAULT 0,
+      delivered_date TEXT,
+      qualifies INTEGER DEFAULT 1,
+      description TEXT,
+      approver_email TEXT,
+      approver_name TEXT,
+      approved INTEGER DEFAULT 0,
+      approved_at TEXT,
+      paid INTEGER DEFAULT 0,
+      paid_month TEXT,
+      rejection_comment TEXT,
+      rejected_at TEXT,
+      manual_adjustment REAL DEFAULT 0,
+      adjustment_reason TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_commission_deals_am ON commission_deals(account_manager_email);
+    CREATE INDEX IF NOT EXISTS idx_commission_deals_approver ON commission_deals(approver_email);
+    CREATE INDEX IF NOT EXISTS idx_commission_deals_month ON commission_deals(month);
   `);
 
   // Add rejection_comment column if not exists (migration)
@@ -121,6 +170,21 @@ function getExpectedPaidMonth(dateStr) {
   return `${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+function calcMrgpMultiplier(contractMonths) {
+  if (contractMonths >= 60) return 3;
+  if (contractMonths >= 13) return 2;
+  return 1;
+}
+
+function calcCommission(deal) {
+  const oneOffRate = deal.is_new_customer ? 0.20 : 0.10;
+  const oneOffComm = deal.one_off_gp * oneOffRate;
+  const mrgpMult = calcMrgpMultiplier(deal.contract_months);
+  const mrgpComm = deal.mrgp * mrgpMult;
+  const total = oneOffComm + mrgpComm + (deal.manual_adjustment || 0);
+  return { oneOffRate, oneOffComm, mrgpMult, mrgpComm, total };
+}
+
 init();
 
-module.exports = { db, ensureUser, promoteToManager, getExpectedPaidMonth };
+module.exports = { db, ensureUser, promoteToManager, getExpectedPaidMonth, calcMrgpMultiplier, calcCommission };

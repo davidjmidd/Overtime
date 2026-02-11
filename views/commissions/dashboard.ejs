@@ -1,0 +1,208 @@
+<%- include('../layout-head', { title: 'Commissions' }) %>
+<%- include('../navbar') %>
+<div class="container">
+  <%- include('../flash') %>
+
+  <div class="page-header">
+    <h1>My Commissions</h1>
+    <div class="filter-bar" style="margin:0;">
+      <form method="GET" style="display:flex; gap:0.5rem; align-items:center;">
+        <select name="month" onchange="this.form.submit()">
+          <% months.forEach(m => { %>
+            <option value="<%= m.month %>" <%= activeMonth === m.month ? 'selected' : '' %>><%= m.month %></option>
+          <% }) %>
+        </select>
+      </form>
+    </div>
+  </div>
+
+  <% if (target) { %>
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value">&pound;<%= totalOneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+      <div class="stat-label">One Off GP (Target: &pound;<%= target.one_off_gp_target.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %>)</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:<%= Math.min(100, totalOneOffGP / target.one_off_gp_target * 100) %>%; background:<%= totalOneOffGP >= target.one_off_gp_target ? 'var(--success)' : 'var(--plum)' %>;"></div></div>
+      <div style="font-size:0.75rem; color:var(--text-light); margin-top:0.25rem;"><%= (totalOneOffGP / target.one_off_gp_target * 100).toFixed(1) %>% of target</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">&pound;<%= totalMRGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+      <div class="stat-label">MRGP (Target: &pound;<%= target.mrgp_target.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %>)</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:<%= Math.min(100, totalMRGP / target.mrgp_target * 100) %>%; background:<%= totalMRGP >= target.mrgp_target ? 'var(--success)' : 'var(--orange)' %>;"></div></div>
+      <div style="font-size:0.75rem; color:var(--text-light); margin-top:0.25rem;"><%= (totalMRGP / target.mrgp_target * 100).toFixed(1) %>% of target</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">&pound;<%= totalCommission.toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
+      <div class="stat-label">Total Commission</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">&pound;<%= deliveredComm.toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
+      <div class="stat-label">Payable (Delivered)</div>
+    </div>
+  </div>
+  <% } else { %>
+  <div class="alert alert-error">No targets set for this month. Contact your manager or payroll.</div>
+  <% } %>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('deals')">Deals (<%= deals.length %>)</button>
+    <button class="tab" onclick="showTab('submit')">Submit Deal</button>
+  </div>
+
+  <div id="tab-deals" class="tab-content active">
+    <div class="card">
+      <h2>Deals - <%= activeMonth %></h2>
+      <% if (deals.length === 0) { %>
+        <div class="empty-state">No deals for this month.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Customer</th>
+                <th>New?</th>
+                <th>One Off GP</th>
+                <th>MRGP</th>
+                <th>Contract</th>
+                <th>Commission</th>
+                <th>Delivered</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% deals.forEach(d => { %>
+              <tr<% if (d.rejection_comment) { %> style="background:var(--orange-lightest);"<% } %>>
+                <td><%= new Date(d.deal_date).toLocaleDateString('en-GB') %></td>
+                <td><%= d.customer_name %></td>
+                <td><%= d.is_new_customer ? 'Yes (20%)' : 'No (10%)' %></td>
+                <td>&pound;<%= d.one_off_gp.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= d.mrgp.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td><%= d.contract_months %>m (<%= d.mrgp_multiplier %>x)</td>
+                <td>
+                  &pound;<%= (d.total_commission + d.manual_adjustment).toLocaleString('en-GB', {minimumFractionDigits:2}) %>
+                  <% if (d.manual_adjustment) { %>
+                    <br><span style="font-size:0.75rem; color:var(--text-light);">adj: &pound;<%= d.manual_adjustment.toFixed(2) %></span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (d.project_delivered) { %>
+                    <span class="badge badge-paid">Delivered</span>
+                  <% } else { %>
+                    <span class="badge badge-pending">Pending</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (d.paid) { %>
+                    <span class="badge badge-paid">Paid</span>
+                  <% } else if (d.approved) { %>
+                    <span class="badge badge-approved">Approved</span>
+                  <% } else if (d.rejection_comment) { %>
+                    <span class="badge badge-rejected">Returned</span>
+                    <div class="rejection-comment"><strong>Manager:</strong> <%= d.rejection_comment %></div>
+                  <% } else { %>
+                    <span class="badge badge-pending">Pending</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (!d.approved && !d.paid) { %>
+                    <form method="POST" action="/commissions/delete-deal/<%= d.id %>" style="display:inline;">
+                      <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Delete this deal?')">Delete</button>
+                    </form>
+                  <% } else { %> - <% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+        <% if (!deals.every(d => d.qualifies)) { %>
+        <p style="margin-top:0.75rem; font-size:0.8rem; color:var(--text-light);">* Non-qualifying deals are excluded from target calculations.</p>
+        <% } %>
+      <% } %>
+    </div>
+  </div>
+
+  <div id="tab-submit" class="tab-content">
+    <div class="card" style="max-width:650px;">
+      <h2>Submit Deal</h2>
+      <form method="POST" action="/commissions/submit-deal">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 1rem;">
+          <div class="form-group">
+            <label>Customer Name *</label>
+            <input type="text" name="customer_name" required placeholder="e.g. Acme Ltd">
+          </div>
+          <div class="form-group">
+            <label>New Customer?</label>
+            <select name="is_new_customer">
+              <option value="0">No (10% commission)</option>
+              <option value="1">Yes (20% commission)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Deal Date *</label>
+            <input type="date" name="deal_date" required>
+          </div>
+          <div class="form-group">
+            <label>Approved By *</label>
+            <select name="approver_email" required>
+              <option value="">Select manager</option>
+              <% managers.forEach(m => { %>
+                <option value="<%= m.email %>"><%= m.name %></option>
+              <% }) %>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>One Off GP (&pound;)</label>
+            <input type="number" name="one_off_gp" step="0.01" min="0" value="0" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label>MRGP (&pound;/month)</label>
+            <input type="number" name="mrgp" step="0.01" min="0" value="0" placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label>Contract Length (months)</label>
+            <select name="contract_months">
+              <option value="12">12 months (1x MRGP)</option>
+              <option value="24">24 months (2x MRGP)</option>
+              <option value="36">36 months (2x MRGP)</option>
+              <option value="60">60 months (3x MRGP)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Project Delivered?</label>
+            <select name="project_delivered">
+              <option value="0">No - not yet payable</option>
+              <option value="1">Yes - payable</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea name="description" rows="2" style="width:100%; padding:0.6rem; border:1px solid var(--border); border-radius:6px; font-family:inherit; resize:vertical;" placeholder="Brief deal description"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary">Submit Deal</button>
+      </form>
+      <div style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid var(--border); font-size:0.85rem; color:var(--text-light);">
+        <strong>Commission Rates:</strong><br>
+        One Off GP: 10% (20% for new customers)<br>
+        MRGP: 1x for 12m, 2x for 13-36m, 3x for 60m+<br>
+        Payable once project is delivered
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.progress-bar { height:6px; background:var(--border); border-radius:3px; margin-top:0.5rem; overflow:hidden; }
+.progress-fill { height:100%; border-radius:3px; transition:width 0.3s; }
+</style>
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body></html>

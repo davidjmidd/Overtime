@@ -6,7 +6,7 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const bcrypt = require('bcryptjs');
 const { stringify } = require('csv-stringify/sync');
-const { db, ensureUser, promoteToManager, getExpectedPaidMonth } = require('./db');
+const { db, ensureUser, promoteToManager, getExpectedPaidMonth, calcCommission } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +39,7 @@ app.use(flash());
 app.use((req, res, next) => {
   res.locals.user = req.session.user || null;
   res.locals.messages = req.flash();
+  res.locals.portal = req.session.portal || null;
   next();
 });
 
@@ -65,25 +66,21 @@ function requirePayroll(req, res, next) {
 // ============ AUTH ROUTES ============
 
 app.get('/', (req, res) => {
-  if (req.session.user) {
-    if (req.session.user.role === 'payroll') return res.redirect('/payroll');
-    if (req.session.user.role === 'manager') return res.redirect('/manager');
-    return res.redirect('/dashboard');
-  }
-  res.redirect('/login');
+  res.render('portal-select');
 });
 
 app.get('/login', (req, res) => {
-  res.render('login');
+  const portal = req.query.portal || 'overtime';
+  res.render('login', { portal });
 });
 
 app.post('/login', (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, portal } = req.body;
   const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim());
 
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     req.flash('error', 'Invalid email or password');
-    return res.redirect('/login');
+    return res.redirect('/login?portal=' + (portal || 'overtime'));
   }
 
   req.session.user = {
@@ -95,6 +92,13 @@ app.post('/login', (req, res) => {
     nights_away_rate: user.nights_away_rate,
     is_field_engineer: user.is_field_engineer
   };
+  req.session.portal = portal || 'overtime';
+
+  if (portal === 'commissions') {
+    if (user.role === 'payroll') return res.redirect('/commissions/payroll');
+    if (user.role === 'manager') return res.redirect('/commissions/manager');
+    return res.redirect('/commissions/dashboard');
+  }
 
   if (user.role === 'payroll') return res.redirect('/payroll');
   if (user.role === 'manager') return res.redirect('/manager');
@@ -103,7 +107,7 @@ app.post('/login', (req, res) => {
 
 app.get('/logout', (req, res) => {
   req.session.destroy();
-  res.redirect('/login');
+  res.redirect('/');
 });
 
 // ============ STAFF DASHBOARD ============
@@ -598,6 +602,265 @@ app.post('/payroll/import', requirePayroll, upload.single('file'), (req, res) =>
     req.flash('error', 'Import failed: ' + err.message);
     res.redirect('/payroll/import');
   }
+});
+
+// ============ COMMISSION ROUTES ============
+
+// Staff/Account Manager Dashboard
+app.get('/commissions/dashboard', requireLogin, (req, res) => {
+  const monthFilter = req.query.month || '';
+  const email = req.session.user.email;
+
+  const months = db.prepare(`
+    SELECT DISTINCT month FROM commission_deals WHERE account_manager_email = ? ORDER BY month DESC
+  `).all(email);
+
+  const activeMonth = monthFilter || (months.length ? months[0].month : '');
+
+  const deals = db.prepare(`
+    SELECT * FROM commission_deals WHERE account_manager_email = ? AND month = ? ORDER BY deal_date DESC
+  `).all(email, activeMonth);
+
+  const target = db.prepare(`
+    SELECT * FROM commission_targets WHERE user_email = ? AND month = ?
+  `).get(email, activeMonth);
+
+  // Calculate totals for the month
+  const qualifyingDeals = deals.filter(d => d.qualifies);
+  const totalOneOffGP = qualifyingDeals.reduce((s, d) => s + d.one_off_gp, 0);
+  const totalMRGP = qualifyingDeals.reduce((s, d) => s + d.mrgp, 0);
+  const totalCommission = deals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+  const deliveredComm = deals.filter(d => d.project_delivered).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+
+  const managers = db.prepare("SELECT email, name FROM users WHERE role = 'manager' ORDER BY name").all();
+
+  res.render('commissions/dashboard', {
+    deals, target, months, activeMonth, totalOneOffGP, totalMRGP, totalCommission, deliveredComm, managers
+  });
+});
+
+// Staff submit deal
+app.post('/commissions/submit-deal', requireLogin, (req, res) => {
+  const { customer_name, is_new_customer, deal_date, one_off_gp, mrgp, contract_months, description, approver_email, project_delivered } = req.body;
+
+  if (!customer_name || !deal_date || !approver_email) {
+    req.flash('error', 'Customer, date, and approver are required');
+    return res.redirect('/commissions/dashboard');
+  }
+
+  const d = new Date(deal_date);
+  const month = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const deal = {
+    one_off_gp: parseFloat(one_off_gp) || 0,
+    mrgp: parseFloat(mrgp) || 0,
+    contract_months: parseInt(contract_months) || 12,
+    is_new_customer: is_new_customer === '1' ? 1 : 0,
+    manual_adjustment: 0
+  };
+  const comm = calcCommission(deal);
+  const approver = db.prepare('SELECT name FROM users WHERE email = ?').get(approver_email);
+
+  db.prepare(`
+    INSERT INTO commission_deals
+    (account_manager_email, account_manager_name, customer_name, is_new_customer, deal_date, month,
+     one_off_gp, mrgp, contract_months, mrgp_multiplier, mrgp_commission_value,
+     one_off_commission_rate, one_off_commission_value, total_commission,
+     project_delivered, description, approver_email, approver_name, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(
+    req.session.user.email, req.session.user.name, customer_name, deal.is_new_customer,
+    deal_date, month, deal.one_off_gp, deal.mrgp, deal.contract_months,
+    comm.mrgpMult, comm.mrgpComm, comm.oneOffRate, comm.oneOffComm, comm.total,
+    project_delivered === '1' ? 1 : 0, description || '', approver_email, approver ? approver.name : ''
+  );
+
+  req.flash('success', 'Deal submitted for approval');
+  res.redirect('/commissions/dashboard');
+});
+
+// Staff delete unapproved deal
+app.post('/commissions/delete-deal/:id', requireLogin, (req, res) => {
+  const entry = db.prepare('SELECT * FROM commission_deals WHERE id = ? AND account_manager_email = ?').get(
+    req.params.id, req.session.user.email
+  );
+  if (!entry) { req.flash('error', 'Deal not found'); return res.redirect('/commissions/dashboard'); }
+  if (entry.approved || entry.paid) { req.flash('error', 'Cannot delete approved or paid deals'); return res.redirect('/commissions/dashboard'); }
+  db.prepare('DELETE FROM commission_deals WHERE id = ?').run(req.params.id);
+  req.flash('success', 'Deal deleted');
+  res.redirect('/commissions/dashboard');
+});
+
+// Commission Manager Dashboard
+app.get('/commissions/manager', requireManager, (req, res) => {
+  const monthFilter = req.query.month || '';
+  const email = req.session.user.email;
+
+  const months = db.prepare(`SELECT DISTINCT month FROM commission_deals ORDER BY month DESC`).all();
+  const activeMonth = monthFilter || (months.length ? months[0].month : '');
+
+  const pendingDeals = db.prepare(`
+    SELECT * FROM commission_deals WHERE approver_email = ? AND approved = 0 ORDER BY account_manager_name, deal_date DESC
+  `).all(email);
+
+  const monthDeals = db.prepare(`
+    SELECT cd.*, ct.one_off_gp_target, ct.mrgp_target, ct.salary
+    FROM commission_deals cd
+    LEFT JOIN commission_targets ct ON ct.user_email = cd.account_manager_email AND ct.month = cd.month
+    WHERE cd.approver_email = ? AND cd.month = ?
+    ORDER BY cd.account_manager_name, cd.deal_date
+  `).all(email, activeMonth);
+
+  // KPI: group by account manager for the active month
+  const teamEmails = [...new Set(monthDeals.map(d => d.account_manager_email))];
+  const teamKPIs = teamEmails.map(te => {
+    const deals = monthDeals.filter(d => d.account_manager_email === te);
+    const target = db.prepare('SELECT * FROM commission_targets WHERE user_email = ? AND month = ?').get(te, activeMonth);
+    const qualifying = deals.filter(d => d.qualifies);
+    const totalOneOff = qualifying.reduce((s, d) => s + d.one_off_gp, 0);
+    const totalMRGP = qualifying.reduce((s, d) => s + d.mrgp, 0);
+    const totalComm = deals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    const deliveredComm = deals.filter(d => d.project_delivered).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    return {
+      email: te,
+      name: deals[0]?.account_manager_name || te,
+      target,
+      totalOneOff, totalMRGP, totalComm, deliveredComm,
+      oneOffPct: target && target.one_off_gp_target > 0 ? (totalOneOff / target.one_off_gp_target * 100) : 0,
+      mrgpPct: target && target.mrgp_target > 0 ? (totalMRGP / target.mrgp_target * 100) : 0,
+      dealCount: deals.length,
+      approvedCount: deals.filter(d => d.approved).length,
+      pendingCount: deals.filter(d => !d.approved).length
+    };
+  });
+
+  // Totals
+  const teamTotalComm = teamKPIs.reduce((s, k) => s + k.totalComm, 0);
+  const teamDeliveredComm = teamKPIs.reduce((s, k) => s + k.deliveredComm, 0);
+
+  res.render('commissions/manager', {
+    pendingDeals, monthDeals, months, activeMonth, teamKPIs, teamTotalComm, teamDeliveredComm
+  });
+});
+
+app.post('/commissions/manager/approve/:id', requireManager, (req, res) => {
+  db.prepare(`UPDATE commission_deals SET approved = 1, approved_at = datetime('now'), rejection_comment = NULL, rejected_at = NULL WHERE id = ? AND approver_email = ?`)
+    .run(req.params.id, req.session.user.email);
+  req.flash('success', 'Deal approved');
+  res.redirect('/commissions/manager');
+});
+
+app.post('/commissions/manager/approve-all', requireManager, (req, res) => {
+  db.prepare(`UPDATE commission_deals SET approved = 1, approved_at = datetime('now') WHERE approver_email = ? AND approved = 0`)
+    .run(req.session.user.email);
+  req.flash('success', 'All pending deals approved');
+  res.redirect('/commissions/manager');
+});
+
+app.post('/commissions/manager/reject/:id', requireManager, (req, res) => {
+  const { comment } = req.body;
+  if (!comment || !comment.trim()) { req.flash('error', 'Comment required'); return res.redirect('/commissions/manager'); }
+  db.prepare(`UPDATE commission_deals SET approved = 0, rejection_comment = ?, rejected_at = datetime('now') WHERE id = ? AND approver_email = ?`)
+    .run(comment.trim(), req.params.id, req.session.user.email);
+  req.flash('success', 'Deal sent back for review');
+  res.redirect('/commissions/manager');
+});
+
+app.post('/commissions/manager/adjust/:id', requireManager, (req, res) => {
+  const { manual_adjustment, adjustment_reason } = req.body;
+  db.prepare(`UPDATE commission_deals SET manual_adjustment = ?, adjustment_reason = ? WHERE id = ? AND approver_email = ?`)
+    .run(parseFloat(manual_adjustment) || 0, adjustment_reason || '', req.params.id, req.session.user.email);
+  req.flash('success', 'Adjustment applied');
+  res.redirect('/commissions/manager');
+});
+
+app.post('/commissions/manager/toggle-delivered/:id', requireManager, (req, res) => {
+  const deal = db.prepare('SELECT * FROM commission_deals WHERE id = ? AND approver_email = ?').get(req.params.id, req.session.user.email);
+  if (deal) {
+    db.prepare('UPDATE commission_deals SET project_delivered = ?, delivered_date = ? WHERE id = ?')
+      .run(deal.project_delivered ? 0 : 1, deal.project_delivered ? null : new Date().toISOString().split('T')[0], deal.id);
+  }
+  req.flash('success', deal.project_delivered ? 'Marked as not delivered' : 'Marked as delivered');
+  res.redirect('/commissions/manager');
+});
+
+// Commission Payroll
+app.get('/commissions/payroll', requirePayroll, (req, res) => {
+  const monthFilter = req.query.month || '';
+  const months = db.prepare(`SELECT DISTINCT month FROM commission_deals ORDER BY month DESC`).all();
+  const activeMonth = monthFilter || (months.length ? months[0].month : '');
+
+  let deals;
+  if (activeMonth) {
+    deals = db.prepare(`SELECT * FROM commission_deals WHERE month = ? ORDER BY account_manager_name, deal_date`).all(activeMonth);
+  } else {
+    deals = db.prepare(`SELECT * FROM commission_deals ORDER BY account_manager_name, deal_date DESC`).all();
+  }
+
+  // Summary by account manager
+  const amEmails = [...new Set(deals.map(d => d.account_manager_email))];
+  const summary = amEmails.map(e => {
+    const amDeals = deals.filter(d => d.account_manager_email === e);
+    const target = db.prepare('SELECT * FROM commission_targets WHERE user_email = ? AND month = ?').get(e, activeMonth);
+    const totalComm = amDeals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    const deliveredComm = amDeals.filter(d => d.project_delivered).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    const approvedDeliveredComm = amDeals.filter(d => d.project_delivered && d.approved).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    return {
+      email: e, name: amDeals[0]?.account_manager_name || e,
+      target, totalComm, deliveredComm, approvedDeliveredComm,
+      dealCount: amDeals.length,
+      paidCount: amDeals.filter(d => d.paid).length,
+      unpaidCount: amDeals.filter(d => !d.paid && d.approved && d.project_delivered).length
+    };
+  });
+
+  const targets = db.prepare(`SELECT ct.*, u.name FROM commission_targets ct LEFT JOIN users u ON u.email = ct.user_email WHERE ct.month = ? ORDER BY u.name`).all(activeMonth);
+  const users = db.prepare("SELECT * FROM users WHERE role != 'payroll' ORDER BY name").all();
+
+  res.render('commissions/payroll', { deals, months, activeMonth, summary, targets, users });
+});
+
+app.post('/commissions/payroll/mark-paid', requirePayroll, (req, res) => {
+  const { entry_ids, paid_month } = req.body;
+  if (!entry_ids || !paid_month) { req.flash('error', 'Missing fields'); return res.redirect('/commissions/payroll'); }
+  const ids = Array.isArray(entry_ids) ? entry_ids : [entry_ids];
+  const stmt = db.prepare('UPDATE commission_deals SET paid = 1, paid_month = ? WHERE id = ?');
+  const batch = db.transaction((ids) => { for (const id of ids) stmt.run(paid_month, id); });
+  batch(ids);
+  req.flash('success', `Marked ${ids.length} deals as paid`);
+  res.redirect('/commissions/payroll');
+});
+
+app.post('/commissions/payroll/set-target', requirePayroll, (req, res) => {
+  const { user_email, month, salary } = req.body;
+  if (!user_email || !month || !salary) { req.flash('error', 'All fields required'); return res.redirect('/commissions/payroll'); }
+  const sal = parseFloat(salary);
+  const oneOffTarget = sal * 3.5;
+  const mrgpTarget = oneOffTarget * 0.0625;
+  db.prepare(`INSERT INTO commission_targets (user_email, month, salary, one_off_gp_target, mrgp_target)
+    VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_email, month) DO UPDATE SET salary=?, one_off_gp_target=?, mrgp_target=?`)
+    .run(user_email, month, sal, oneOffTarget, mrgpTarget, sal, oneOffTarget, mrgpTarget);
+  req.flash('success', 'Target set');
+  res.redirect('/commissions/payroll?month=' + month);
+});
+
+app.get('/commissions/payroll/export', requirePayroll, (req, res) => {
+  const month = req.query.month || '';
+  let query = `SELECT account_manager_name as Name, customer_name as Customer, deal_date as Date,
+    one_off_gp as 'One Off GP', mrgp as MRGP, contract_months as 'Contract Months',
+    is_new_customer as 'New Customer', one_off_commission_value as 'One Off Commission',
+    mrgp_commission_value as 'MRGP Commission', manual_adjustment as 'Adjustment',
+    total_commission + manual_adjustment as 'Total Commission',
+    CASE WHEN project_delivered = 1 THEN 'Yes' ELSE 'No' END as Delivered,
+    CASE WHEN approved = 1 THEN 'Approved' ELSE 'Pending' END as Status,
+    paid_month as 'Paid Month' FROM commission_deals`;
+  const params = [];
+  if (month) { query += ` WHERE month = ?`; params.push(month); }
+  query += ` ORDER BY account_manager_name, deal_date`;
+  const rows = db.prepare(query).all(...params);
+  const csv = stringify(rows, { header: true });
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="commissions-export-${month || 'all'}.csv"`);
+  res.send(csv);
 });
 
 // ============ CHANGE PASSWORD ============

@@ -1,0 +1,241 @@
+<%- include('../layout-head', { title: 'Commission Manager' }) %>
+<%- include('../navbar') %>
+<div class="container">
+  <%- include('../flash') %>
+
+  <div class="page-header">
+    <h1>Commission Manager</h1>
+    <div class="filter-bar" style="margin:0;">
+      <form method="GET" style="display:flex; gap:0.5rem; align-items:center;">
+        <select name="month" onchange="this.form.submit()">
+          <% months.forEach(m => { %>
+            <option value="<%= m.month %>" <%= activeMonth === m.month ? 'selected' : '' %>><%= m.month %></option>
+          <% }) %>
+        </select>
+      </form>
+    </div>
+  </div>
+
+  <!-- Team KPI Summary -->
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-value"><%= teamKPIs.length %></div>
+      <div class="stat-label">Team Members</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><%= pendingDeals.length %></div>
+      <div class="stat-label">Pending Approval</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">&pound;<%= teamTotalComm.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+      <div class="stat-label">Total Commission</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">&pound;<%= teamDeliveredComm.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+      <div class="stat-label">Payable (Delivered)</div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('kpi')">Team KPIs</button>
+    <button class="tab" onclick="showTab('pending')">Pending Approval (<%= pendingDeals.length %>)</button>
+    <button class="tab" onclick="showTab('all-deals')">All Deals - <%= activeMonth %></button>
+  </div>
+
+  <!-- KPI Dashboard -->
+  <div id="tab-kpi" class="tab-content active">
+    <% if (teamKPIs.length === 0) { %>
+      <div class="card"><div class="empty-state">No commission data for this month.</div></div>
+    <% } else { %>
+      <% teamKPIs.forEach(k => { %>
+      <div class="card">
+        <h2 style="margin-bottom:0.75rem;"><%= k.name %></h2>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:1rem; margin-bottom:1rem;">
+          <div>
+            <div style="font-size:0.8rem; color:var(--text-light);">One Off GP</div>
+            <div style="font-size:1.1rem; font-weight:600;">&pound;<%= k.totalOneOff.toLocaleString('en-GB', {minimumFractionDigits:0}) %></div>
+            <% if (k.target) { %>
+              <div class="progress-bar"><div class="progress-fill" style="width:<%= Math.min(100, k.oneOffPct) %>%; background:<%= k.oneOffPct >= 100 ? 'var(--success)' : 'var(--plum)' %>;"></div></div>
+              <div style="font-size:0.75rem; color:var(--text-light);"><%= k.oneOffPct.toFixed(1) %>% of &pound;<%= k.target.one_off_gp_target.toLocaleString('en-GB', {minimumFractionDigits:0}) %></div>
+            <% } %>
+          </div>
+          <div>
+            <div style="font-size:0.8rem; color:var(--text-light);">MRGP</div>
+            <div style="font-size:1.1rem; font-weight:600;">&pound;<%= k.totalMRGP.toLocaleString('en-GB', {minimumFractionDigits:0}) %></div>
+            <% if (k.target) { %>
+              <div class="progress-bar"><div class="progress-fill" style="width:<%= Math.min(100, k.mrgpPct) %>%; background:<%= k.mrgpPct >= 100 ? 'var(--success)' : 'var(--orange)' %>;"></div></div>
+              <div style="font-size:0.75rem; color:var(--text-light);"><%= k.mrgpPct.toFixed(1) %>% of &pound;<%= k.target.mrgp_target.toLocaleString('en-GB', {minimumFractionDigits:0}) %></div>
+            <% } %>
+          </div>
+          <div>
+            <div style="font-size:0.8rem; color:var(--text-light);">Total Commission</div>
+            <div style="font-size:1.1rem; font-weight:600;">&pound;<%= k.totalComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></div>
+          </div>
+          <div>
+            <div style="font-size:0.8rem; color:var(--text-light);">Payable</div>
+            <div style="font-size:1.1rem; font-weight:600;">&pound;<%= k.deliveredComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></div>
+            <div style="font-size:0.75rem; color:var(--text-light);"><%= k.dealCount %> deals (<%= k.approvedCount %> approved, <%= k.pendingCount %> pending)</div>
+          </div>
+        </div>
+      </div>
+      <% }) %>
+    <% } %>
+  </div>
+
+  <!-- Pending Approval -->
+  <div id="tab-pending" class="tab-content">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="border:none; margin:0; padding:0;">Pending Commission Approval</h2>
+        <% if (pendingDeals.length > 0) { %>
+          <form method="POST" action="/commissions/manager/approve-all" style="display:inline;">
+            <button type="submit" class="btn btn-success btn-sm" onclick="return confirm('Approve all?')">Approve All</button>
+          </form>
+        <% } %>
+      </div>
+      <% if (pendingDeals.length === 0) { %>
+        <div class="empty-state">No pending deals.</div>
+      <% } else { %>
+        <%
+          const grouped = {};
+          pendingDeals.forEach(d => { if (!grouped[d.account_manager_name]) grouped[d.account_manager_name] = []; grouped[d.account_manager_name].push(d); });
+        %>
+        <% Object.keys(grouped).forEach(name => { %>
+          <h3 style="margin:1rem 0 0.5rem; font-size:1rem;"><%= name %></h3>
+          <div class="table-wrapper" style="margin-bottom:1rem;">
+            <table>
+              <thead><tr><th>Date</th><th>Customer</th><th>One Off GP</th><th>MRGP</th><th>Contract</th><th>Commission</th><th>Delivered</th><th>Action</th></tr></thead>
+              <tbody>
+                <% grouped[name].forEach(d => { %>
+                <tr<% if (d.rejection_comment) { %> style="background:var(--orange-lightest);"<% } %>>
+                  <td><%= new Date(d.deal_date).toLocaleDateString('en-GB') %></td>
+                  <td><%= d.customer_name %><%= d.is_new_customer ? ' (New)' : '' %></td>
+                  <td>&pound;<%= d.one_off_gp.toFixed(2) %></td>
+                  <td>&pound;<%= d.mrgp.toFixed(2) %></td>
+                  <td><%= d.contract_months %>m</td>
+                  <td>&pound;<%= d.total_commission.toFixed(2) %></td>
+                  <td><%= d.project_delivered ? 'Yes' : 'No' %></td>
+                  <td>
+                    <div style="display:flex; gap:0.25rem; flex-wrap:wrap;">
+                      <form method="POST" action="/commissions/manager/approve/<%= d.id %>" style="display:inline;">
+                        <button type="submit" class="btn btn-success btn-sm">Approve</button>
+                      </form>
+                      <button type="button" class="btn btn-warning btn-sm" onclick="openRejectModal(<%= d.id %>, '<%= d.account_manager_name.replace(/'/g, "\\'") %>')">Send Back</button>
+                      <button type="button" class="btn btn-outline btn-sm" onclick="openAdjustModal(<%= d.id %>, <%= d.manual_adjustment %>)">Adjust</button>
+                      <form method="POST" action="/commissions/manager/toggle-delivered/<%= d.id %>" style="display:inline;">
+                        <button type="submit" class="btn btn-sm" style="background:var(--plum-light); color:white;"><%= d.project_delivered ? 'Undeliver' : 'Deliver' %></button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        <% }) %>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- All Deals for Month -->
+  <div id="tab-all-deals" class="tab-content">
+    <div class="card">
+      <h2>All Deals - <%= activeMonth %></h2>
+      <% if (monthDeals.length === 0) { %>
+        <div class="empty-state">No deals for this month.</div>
+      <% } else { %>
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>Staff</th><th>Date</th><th>Customer</th><th>One Off GP</th><th>MRGP</th><th>Contract</th><th>Commission</th><th>Adj</th><th>Delivered</th><th>Status</th></tr></thead>
+            <tbody>
+              <% monthDeals.forEach(d => { %>
+              <tr>
+                <td><%= d.account_manager_name %></td>
+                <td><%= new Date(d.deal_date).toLocaleDateString('en-GB') %></td>
+                <td><%= d.customer_name %><%= d.is_new_customer ? ' (New)' : '' %></td>
+                <td>&pound;<%= d.one_off_gp.toFixed(2) %></td>
+                <td>&pound;<%= d.mrgp.toFixed(2) %></td>
+                <td><%= d.contract_months %>m (<%= d.mrgp_multiplier %>x)</td>
+                <td>&pound;<%= d.total_commission.toFixed(2) %></td>
+                <td><%= d.manual_adjustment ? '£' + d.manual_adjustment.toFixed(2) : '-' %></td>
+                <td><span class="badge <%= d.project_delivered ? 'badge-paid' : 'badge-pending' %>"><%= d.project_delivered ? 'Yes' : 'No' %></span></td>
+                <td>
+                  <% if (d.paid) { %><span class="badge badge-paid">Paid</span>
+                  <% } else if (d.approved) { %><span class="badge badge-approved">Approved</span>
+                  <% } else { %><span class="badge badge-pending">Pending</span><% } %>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<!-- Reject Modal -->
+<div class="modal-overlay" id="rejectModal">
+  <div class="modal">
+    <h3>Send Back for Review</h3>
+    <p style="color:var(--text-light); margin-bottom:1rem; font-size:0.9rem;" id="rejectName"></p>
+    <form method="POST" id="rejectForm">
+      <div class="form-group">
+        <label>Comment *</label>
+        <textarea name="comment" rows="3" required placeholder="Explain why..." style="width:100%; padding:0.6rem; border:1px solid var(--border); border-radius:6px; font-family:inherit; resize:vertical;"></textarea>
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="submit" class="btn btn-warning">Send Back</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('rejectModal').classList.remove('active')">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Adjust Modal -->
+<div class="modal-overlay" id="adjustModal">
+  <div class="modal">
+    <h3>Manual Adjustment</h3>
+    <form method="POST" id="adjustForm">
+      <div class="form-group">
+        <label>Adjustment Amount (&pound;)</label>
+        <input type="number" name="manual_adjustment" id="adj-amount" step="0.01" placeholder="e.g. 150 or -50">
+      </div>
+      <div class="form-group">
+        <label>Reason</label>
+        <input type="text" name="adjustment_reason" placeholder="Reason for adjustment">
+      </div>
+      <div style="display:flex; gap:0.5rem;">
+        <button type="submit" class="btn btn-primary">Apply</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('adjustModal').classList.remove('active')">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.progress-bar { height:6px; background:var(--border); border-radius:3px; margin-top:0.5rem; overflow:hidden; }
+.progress-fill { height:100%; border-radius:3px; transition:width 0.3s; }
+</style>
+<script>
+function showTab(name) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+}
+function openRejectModal(id, name) {
+  document.getElementById('rejectForm').action = '/commissions/manager/reject/' + id;
+  document.getElementById('rejectName').textContent = 'Returning deal for: ' + name;
+  document.getElementById('rejectModal').classList.add('active');
+}
+function openAdjustModal(id, current) {
+  document.getElementById('adjustForm').action = '/commissions/manager/adjust/' + id;
+  document.getElementById('adj-amount').value = current || '';
+  document.getElementById('adjustModal').classList.add('active');
+}
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('active'); });
+});
+</script>
+</body></html>
