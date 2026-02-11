@@ -916,9 +916,17 @@ app.post('/commissions/manager/toggle-delivered/:id', requireManager, (req, res)
 // Commission Payroll
 app.get('/commissions/payroll', requirePayroll, (req, res) => {
   const monthFilter = req.query.month || '';
+  const staffFilter = req.query.staff || '';
+  const statusFilter = req.query.status || ''; // all, approved, pending, paid, unpaid
+  const deliveryFilter = req.query.delivery || ''; // all, delivered, undelivered
+
   const months = db.prepare(`SELECT DISTINCT month FROM commission_deals ORDER BY month DESC`).all();
   const activeMonth = monthFilter || (months.length ? months[0].month : '');
 
+  // All staff who have deals (for slicer)
+  const allStaff = db.prepare(`SELECT DISTINCT account_manager_email, account_manager_name FROM commission_deals ORDER BY account_manager_name`).all();
+
+  // Base query for active month
   let deals;
   if (activeMonth) {
     deals = db.prepare(`SELECT * FROM commission_deals WHERE month = ? ORDER BY account_manager_name, deal_date`).all(activeMonth);
@@ -926,27 +934,54 @@ app.get('/commissions/payroll', requirePayroll, (req, res) => {
     deals = db.prepare(`SELECT * FROM commission_deals ORDER BY account_manager_name, deal_date DESC`).all();
   }
 
-  // Summary by account manager
+  // Apply slicer filters
+  let filteredDeals = deals;
+  if (staffFilter) {
+    filteredDeals = filteredDeals.filter(d => d.account_manager_email === staffFilter);
+  }
+  if (statusFilter === 'approved') filteredDeals = filteredDeals.filter(d => d.approved && !d.paid);
+  else if (statusFilter === 'pending') filteredDeals = filteredDeals.filter(d => !d.approved);
+  else if (statusFilter === 'paid') filteredDeals = filteredDeals.filter(d => d.paid);
+  else if (statusFilter === 'unpaid') filteredDeals = filteredDeals.filter(d => !d.paid);
+  if (deliveryFilter === 'delivered') filteredDeals = filteredDeals.filter(d => d.project_delivered);
+  else if (deliveryFilter === 'undelivered') filteredDeals = filteredDeals.filter(d => !d.project_delivered);
+
+  // Per-staff monthly summary (always for the month, unfiltered by status/delivery for target calc)
   const amEmails = [...new Set(deals.map(d => d.account_manager_email))];
   const summary = amEmails.map(e => {
     const amDeals = deals.filter(d => d.account_manager_email === e);
     const target = db.prepare('SELECT * FROM commission_targets WHERE user_email = ? AND month = ?').get(e, activeMonth);
+    const qualifying = amDeals.filter(d => d.qualifies);
+    const oneOffGP = qualifying.reduce((s, d) => s + d.one_off_gp, 0);
+    const mrgp = qualifying.reduce((s, d) => s + d.mrgp, 0);
     const totalComm = amDeals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
-    const deliveredComm = amDeals.filter(d => d.project_delivered).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
-    const approvedDeliveredComm = amDeals.filter(d => d.project_delivered && d.approved).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    const oneOffTarget = target ? target.one_off_gp_target : 0;
+    const mrgpTarget = target ? target.mrgp_target : 0;
+    const targetMet = oneOffTarget > 0 ? oneOffGP >= oneOffTarget : false;
+    const qualifiedComm = targetMet ? totalComm : 0;
+    const inTheBank = amDeals.filter(d => d.approved && d.project_delivered && !d.paid)
+      .reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    const paidComm = amDeals.filter(d => d.paid).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
     return {
       email: e, name: amDeals[0]?.account_manager_name || e,
-      target, totalComm, deliveredComm, approvedDeliveredComm,
+      target, oneOffGP, mrgp, totalComm, qualifiedComm, targetMet,
+      oneOffTarget, mrgpTarget,
+      oneOffPct: oneOffTarget > 0 ? (oneOffGP / oneOffTarget * 100) : 0,
+      mrgpPct: mrgpTarget > 0 ? (mrgp / mrgpTarget * 100) : 0,
+      inTheBank, paidComm,
       dealCount: amDeals.length,
       paidCount: amDeals.filter(d => d.paid).length,
-      unpaidCount: amDeals.filter(d => !d.paid && d.approved && d.project_delivered).length
+      unpaidReadyCount: amDeals.filter(d => !d.paid && d.approved && d.project_delivered).length
     };
   });
 
   const targets = db.prepare(`SELECT ct.*, u.name FROM commission_targets ct LEFT JOIN users u ON u.email = ct.user_email WHERE ct.month = ? ORDER BY u.name`).all(activeMonth);
   const users = db.prepare("SELECT * FROM users WHERE role != 'payroll' ORDER BY name").all();
 
-  res.render('commissions/payroll', { deals, months, activeMonth, summary, targets, users });
+  res.render('commissions/payroll', {
+    deals: filteredDeals, allDeals: deals, months, activeMonth, summary, targets, users, allStaff,
+    staffFilter, statusFilter, deliveryFilter
+  });
 });
 
 app.post('/commissions/payroll/mark-paid', requirePayroll, (req, res) => {
@@ -976,21 +1011,37 @@ app.post('/commissions/payroll/set-target', requirePayroll, (req, res) => {
 
 app.get('/commissions/payroll/export', requirePayroll, (req, res) => {
   const month = req.query.month || '';
-  let query = `SELECT account_manager_name as Name, customer_name as Customer, deal_date as Date,
+  const staff = req.query.staff || '';
+  const status = req.query.status || '';
+  const delivery = req.query.delivery || '';
+
+  const conditions = [];
+  const params = [];
+  if (month) { conditions.push('month = ?'); params.push(month); }
+  if (staff) { conditions.push('account_manager_email = ?'); params.push(staff); }
+  if (status === 'approved') { conditions.push('approved = 1 AND paid = 0'); }
+  else if (status === 'pending') { conditions.push('approved = 0'); }
+  else if (status === 'paid') { conditions.push('paid = 1'); }
+  else if (status === 'unpaid') { conditions.push('paid = 0'); }
+  if (delivery === 'delivered') { conditions.push('project_delivered = 1'); }
+  else if (delivery === 'undelivered') { conditions.push('project_delivered = 0'); }
+
+  let query = `SELECT account_manager_name as Name, customer_name as Customer, deal_date as Date, month as Month,
     one_off_gp as 'One Off GP', mrgp as MRGP, contract_months as 'Contract Months',
     is_new_customer as 'New Customer', one_off_commission_value as 'One Off Commission',
     mrgp_commission_value as 'MRGP Commission', manual_adjustment as 'Adjustment',
     total_commission + manual_adjustment as 'Total Commission',
     CASE WHEN project_delivered = 1 THEN 'Yes' ELSE 'No' END as Delivered,
     CASE WHEN approved = 1 THEN 'Approved' ELSE 'Pending' END as Status,
+    CASE WHEN paid = 1 THEN 'Yes' ELSE 'No' END as Paid,
     paid_month as 'Paid Month' FROM commission_deals`;
-  const params = [];
-  if (month) { query += ` WHERE month = ?`; params.push(month); }
+  if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
   query += ` ORDER BY account_manager_name, deal_date`;
   const rows = db.prepare(query).all(...params);
   const csv = stringify(rows, { header: true });
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', `attachment; filename="commissions-export-${month || 'all'}.csv"`);
+  const fname = `commissions-${month || 'all'}${staff ? '-' + staff.split('@')[0] : ''}${status ? '-' + status : ''}.csv`;
+  res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
   res.send(csv);
 });
 

@@ -5,54 +5,104 @@
 
   <div class="page-header">
     <h1>Commission Payroll</h1>
-    <div class="filter-bar" style="margin:0;">
-      <form method="GET" style="display:flex; gap:0.5rem; align-items:center;">
+  </div>
+
+  <!-- Slicer Filters -->
+  <%
+    function buildQS(overrides) {
+      const p = { month: activeMonth, staff: staffFilter, status: statusFilter, delivery: deliveryFilter, ...overrides };
+      return Object.entries(p).filter(([k,v]) => v).map(([k,v]) => k + '=' + encodeURIComponent(v)).join('&');
+    }
+  %>
+  <div class="card" style="margin-bottom:1.5rem; padding:1rem 1.25rem;">
+    <form method="GET" id="filterForm" style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+      <div class="form-group" style="margin-bottom:0; min-width:140px;">
+        <label style="font-size:0.75rem; font-weight:600;">Month</label>
         <select name="month" onchange="this.form.submit()">
           <% months.forEach(m => { %>
             <option value="<%= m.month %>" <%= activeMonth === m.month ? 'selected' : '' %>><%= m.month %></option>
           <% }) %>
         </select>
-      </form>
-      <a href="/commissions/payroll/export?month=<%= activeMonth %>" class="btn btn-outline btn-sm">Export CSV</a>
-    </div>
+      </div>
+      <div class="form-group" style="margin-bottom:0; min-width:160px;">
+        <label style="font-size:0.75rem; font-weight:600;">Account Manager</label>
+        <select name="staff" onchange="this.form.submit()">
+          <option value="">All Staff</option>
+          <% allStaff.forEach(s => { %>
+            <option value="<%= s.account_manager_email %>" <%= staffFilter === s.account_manager_email ? 'selected' : '' %>><%= s.account_manager_name %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0; min-width:120px;">
+        <label style="font-size:0.75rem; font-weight:600;">Status</label>
+        <select name="status" onchange="this.form.submit()">
+          <option value="" <%= !statusFilter ? 'selected' : '' %>>All</option>
+          <option value="approved" <%= statusFilter === 'approved' ? 'selected' : '' %>>Approved</option>
+          <option value="pending" <%= statusFilter === 'pending' ? 'selected' : '' %>>Pending</option>
+          <option value="paid" <%= statusFilter === 'paid' ? 'selected' : '' %>>Paid</option>
+          <option value="unpaid" <%= statusFilter === 'unpaid' ? 'selected' : '' %>>Unpaid</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:0; min-width:120px;">
+        <label style="font-size:0.75rem; font-weight:600;">Delivery</label>
+        <select name="delivery" onchange="this.form.submit()">
+          <option value="" <%= !deliveryFilter ? 'selected' : '' %>>All</option>
+          <option value="delivered" <%= deliveryFilter === 'delivered' ? 'selected' : '' %>>Delivered</option>
+          <option value="undelivered" <%= deliveryFilter === 'undelivered' ? 'selected' : '' %>>Undelivered</option>
+        </select>
+      </div>
+      <div style="display:flex; gap:0.5rem; align-items:center;">
+        <% if (staffFilter || statusFilter || deliveryFilter) { %>
+          <a href="/commissions/payroll?month=<%= activeMonth %>" class="btn btn-outline btn-sm">Clear Filters</a>
+        <% } %>
+        <a href="/commissions/payroll/export?<%= buildQS({}) %>" class="btn btn-outline btn-sm">Export CSV</a>
+      </div>
+    </form>
   </div>
 
   <%
-    const totalPayable = summary.reduce((s, a) => s + a.approvedDeliveredComm, 0);
-    const totalPaid = deals.filter(d => d.paid).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
-    const totalUnpaid = summary.reduce((s, a) => s + a.unpaidCount, 0);
+    const totalPayable = summary.reduce((s, a) => s + (a.targetMet ? a.inTheBank : 0), 0);
+    const totalPaidComm = summary.reduce((s, a) => s + a.paidComm, 0);
+    const totalQualified = summary.reduce((s, a) => s + a.qualifiedComm, 0);
+    const totalUnpaidReady = summary.reduce((s, a) => s + a.unpaidReadyCount, 0);
+    const targetMetCount = summary.filter(s => s.targetMet).length;
   %>
 
   <div class="stats">
     <div class="stat-card">
       <div class="stat-value"><%= summary.length %></div>
       <div class="stat-label">Account Managers</div>
+      <div style="font-size:0.75rem; color:var(--text-light);"><%= targetMetCount %>/<%= summary.length %> targets met</div>
     </div>
     <div class="stat-card">
-      <div class="stat-value"><%= deals.length %></div>
-      <div class="stat-label">Total Deals</div>
+      <div class="stat-value">&pound;<%= totalQualified.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+      <div class="stat-label">Qualified Commission</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" style="border-left:3px solid var(--plum);">
       <div class="stat-value">&pound;<%= totalPayable.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
-      <div class="stat-label">Payable (Approved &amp; Delivered)</div>
+      <div class="stat-label">In the Bank (Awaiting Payment)</div>
+      <div style="font-size:0.75rem; color:var(--text-light);"><%= totalUnpaidReady %> deals ready to pay</div>
     </div>
     <div class="stat-card">
-      <div class="stat-value"><%= totalUnpaid %></div>
-      <div class="stat-label">Unpaid Deals</div>
+      <div class="stat-value">&pound;<%= totalPaidComm.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+      <div class="stat-label">Already Paid</div>
     </div>
   </div>
 
   <div class="tabs">
-    <button class="tab active" onclick="showTab('summary')">Staff Summary</button>
-    <button class="tab" onclick="showTab('deals')">All Deals (<%= deals.length %>)</button>
+    <button class="tab active" onclick="showTab('summary')">Staff Summary - <%= activeMonth %></button>
+    <button class="tab" onclick="showTab('deals')">Deals (<%= deals.length %>)</button>
     <button class="tab" onclick="showTab('pay')">Mark as Paid</button>
     <button class="tab" onclick="showTab('targets')">Targets</button>
   </div>
 
-  <!-- Staff Summary -->
+  <!-- Staff Summary (per month) -->
   <div id="tab-summary" class="tab-content active">
     <div class="card">
-      <h2>Commission Summary - <%= activeMonth %></h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="border:none; margin:0; padding:0;">Payroll Review - <%= activeMonth %></h2>
+        <a href="/commissions/payroll/export?<%= buildQS({}) %>" class="btn btn-outline btn-sm">Export this view</a>
+      </div>
       <% if (summary.length === 0) { %>
         <div class="empty-state">No commission data for this month.</div>
       <% } else { %>
@@ -62,55 +112,92 @@
               <tr>
                 <th>Account Manager</th>
                 <th>Deals</th>
-                <th>Total Commission</th>
-                <th>Delivered Commission</th>
-                <th>Approved &amp; Delivered</th>
+                <th>One Off GP</th>
+                <th>Target</th>
+                <th>% Target</th>
+                <th>MRGP</th>
+                <th>Commission</th>
+                <th>Qualified</th>
+                <th>In Bank</th>
                 <th>Paid</th>
-                <th>Unpaid Ready</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
               <% summary.forEach(s => { %>
-              <tr>
-                <td><%= s.name %></td>
-                <td><%= s.dealCount %></td>
-                <td>&pound;<%= s.totalComm.toFixed(2) %></td>
-                <td>&pound;<%= s.deliveredComm.toFixed(2) %></td>
-                <td>&pound;<%= s.approvedDeliveredComm.toFixed(2) %></td>
-                <td><%= s.paidCount %></td>
+              <tr style="<%= !s.targetMet && s.oneOffTarget > 0 ? 'opacity:0.6;' : '' %>">
                 <td>
-                  <% if (s.unpaidCount > 0) { %>
-                    <span class="badge badge-pending"><%= s.unpaidCount %> unpaid</span>
+                  <a href="/commissions/payroll?<%= buildQS({staff: s.email}) %>" style="color:var(--plum); text-decoration:none; font-weight:500;">
+                    <%= s.name %>
+                  </a>
+                </td>
+                <td><%= s.dealCount %></td>
+                <td>&pound;<%= s.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= s.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>
+                  <% if (s.oneOffTarget > 0) { %>
+                    <span class="badge <%= s.oneOffPct >= 100 ? 'badge-paid' : (s.oneOffPct >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= s.oneOffPct.toFixed(0) %>%</span>
+                  <% } else { %>-<% } %>
+                </td>
+                <td>&pound;<%= s.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= s.totalComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td style="font-weight:600;">
+                  <% if (s.targetMet) { %>
+                    &pound;<%= s.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %>
+                  <% } else if (s.oneOffTarget > 0) { %>
+                    <span style="color:var(--danger);">&pound;0.00</span>
+                  <% } else { %>-<% } %>
+                </td>
+                <td>&pound;<%= s.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= s.paidComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>
+                  <% if (s.targetMet) { %>
+                    <span class="badge badge-paid" style="font-size:0.7rem;">Target Met</span>
+                  <% } else if (s.oneOffTarget > 0) { %>
+                    <span class="badge badge-rejected" style="font-size:0.7rem;">Target Missed</span>
                   <% } else { %>
-                    <span class="badge badge-paid">All paid</span>
+                    <span class="badge badge-pending" style="font-size:0.7rem;">No Target</span>
+                  <% } %>
+                  <% if (s.unpaidReadyCount > 0) { %>
+                    <br><span class="badge badge-pending" style="font-size:0.65rem; margin-top:2px;"><%= s.unpaidReadyCount %> to pay</span>
                   <% } %>
                 </td>
               </tr>
               <% }) %>
             </tbody>
             <tfoot>
-              <tr style="font-weight:700;">
+              <tr style="font-weight:700; background:var(--plum-lightest);">
                 <td>Total</td>
-                <td><%= deals.length %></td>
-                <td>&pound;<%= summary.reduce((s,a) => s + a.totalComm, 0).toFixed(2) %></td>
-                <td>&pound;<%= summary.reduce((s,a) => s + a.deliveredComm, 0).toFixed(2) %></td>
-                <td>&pound;<%= totalPayable.toFixed(2) %></td>
-                <td><%= summary.reduce((s,a) => s + a.paidCount, 0) %></td>
+                <td><%= summary.reduce((s,a) => s + a.dealCount, 0) %></td>
+                <td>&pound;<%= summary.reduce((s,a) => s + a.oneOffGP, 0).toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= summary.reduce((s,a) => s + a.oneOffTarget, 0).toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td></td>
+                <td>&pound;<%= summary.reduce((s,a) => s + a.mrgp, 0).toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= summary.reduce((s,a) => s + a.totalComm, 0).toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= totalQualified.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= totalPayable.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= totalPaidComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
                 <td></td>
               </tr>
             </tfoot>
           </table>
         </div>
+        <p style="margin-top:0.75rem; font-size:0.8rem; color:var(--text-light);">
+          Monthly target must be met to qualify. "In Bank" = approved &amp; delivered, awaiting payment. Click a name to filter.
+        </p>
       <% } %>
     </div>
   </div>
 
-  <!-- All Deals -->
+  <!-- All Deals (filtered) -->
   <div id="tab-deals" class="tab-content">
     <div class="card">
-      <h2>All Deals - <%= activeMonth %></h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="border:none; margin:0; padding:0;">Deals - <%= activeMonth %><% if (staffFilter) { %> (<%= deals[0]?.account_manager_name || staffFilter %>)<% } %></h2>
+        <span style="font-size:0.85rem; color:var(--text-light);"><%= deals.length %> deal<%= deals.length !== 1 ? 's' : '' %> shown</span>
+      </div>
       <% if (deals.length === 0) { %>
-        <div class="empty-state">No deals for this month.</div>
+        <div class="empty-state">No deals match the current filters.</div>
       <% } else { %>
         <div class="table-wrapper">
           <table>
@@ -149,6 +236,8 @@
                 </td>
                 <td>
                   <% if (d.paid) { %><span class="badge badge-paid">Paid - <%= d.paid_month %></span>
+                  <% } else if (d.approved && d.project_delivered) { %>
+                    <span class="badge" style="background:var(--plum-lightest); color:var(--plum-dark);">In Bank</span>
                   <% } else { %>-<% } %>
                 </td>
               </tr>
@@ -165,7 +254,7 @@
     <div class="card">
       <h2>Mark Commissions as Paid</h2>
       <%
-        const payableDeals = deals.filter(d => d.approved && d.project_delivered && !d.paid);
+        const payableDeals = allDeals.filter(d => d.approved && d.project_delivered && !d.paid);
       %>
       <% if (payableDeals.length === 0) { %>
         <div class="empty-state">No unpaid approved &amp; delivered deals for this month.</div>
@@ -184,16 +273,28 @@
                   <th>Customer</th>
                   <th>Date</th>
                   <th>Commission</th>
+                  <th>Target Met</th>
                 </tr>
               </thead>
               <tbody>
                 <% payableDeals.forEach(d => { %>
-                <tr>
+                  <%
+                    const dSummary = summary.find(s => s.email === d.account_manager_email);
+                    const dTargetMet = dSummary ? dSummary.targetMet : false;
+                  %>
+                <tr style="<%= !dTargetMet ? 'opacity:0.6;' : '' %>">
                   <td class="checkbox-cell"><input type="checkbox" name="entry_ids" value="<%= d.id %>"></td>
                   <td><%= d.account_manager_name %></td>
                   <td><%= d.customer_name %></td>
                   <td><%= new Date(d.deal_date).toLocaleDateString('en-GB') %></td>
                   <td>&pound;<%= (d.total_commission + d.manual_adjustment).toFixed(2) %></td>
+                  <td>
+                    <% if (dTargetMet) { %>
+                      <span class="badge badge-paid" style="font-size:0.7rem;">Yes</span>
+                    <% } else { %>
+                      <span class="badge badge-rejected" style="font-size:0.7rem;">No</span>
+                    <% } %>
+                  </td>
                 </tr>
                 <% }) %>
               </tbody>
