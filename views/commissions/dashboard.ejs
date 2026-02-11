@@ -45,6 +45,7 @@
 
   <div class="tabs">
     <button class="tab active" onclick="showTab('deals')">Deals (<%= deals.length %>)</button>
+    <button class="tab" onclick="showTab('performance')">Performance (6 Months)</button>
     <button class="tab" onclick="showTab('submit')">Submit Deal</button>
   </div>
 
@@ -119,6 +120,110 @@
         <% if (!deals.every(d => d.qualifies)) { %>
         <p style="margin-top:0.75rem; font-size:0.8rem; color:var(--text-light);">* Non-qualifying deals are excluded from target calculations.</p>
         <% } %>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- 6-Month Performance -->
+  <div id="tab-performance" class="tab-content">
+    <div class="card">
+      <h2>Performance Over Last 6 Months</h2>
+      <% if (history.length === 0) { %>
+        <div class="empty-state">No historical data available.</div>
+      <% } else { %>
+        <!-- Visual chart -->
+        <div class="chart-container" style="margin-bottom:1.5rem;">
+          <div style="display:flex; gap:1rem; margin-bottom:0.5rem;">
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--plum);border-radius:2px;vertical-align:middle;"></span> One Off GP</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--orange);border-radius:2px;vertical-align:middle;"></span> MRGP</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--success);border-radius:2px;vertical-align:middle;"></span> Commission Earned</span>
+          </div>
+          <% const maxVal = Math.max(...history.map(h => Math.max(h.oneOffGP, h.oneOffTarget || 0)), 1); %>
+          <div style="display:flex; align-items:flex-end; gap:4px; height:140px;">
+            <% history.forEach(h => { %>
+              <div style="flex:1; display:flex; flex-direction:column; align-items:center; height:100%;">
+                <div style="flex:1; display:flex; align-items:flex-end; gap:2px; width:100%;">
+                  <div style="flex:1; background:var(--plum); border-radius:3px 3px 0 0; height:<%= (h.oneOffGP / maxVal * 100) %>%; min-height:2px; position:relative;" title="One Off GP: £<%= h.oneOffGP.toFixed(0) %>">
+                    <% if (h.oneOffTarget > 0) { %>
+                    <div style="position:absolute; bottom:<%= (h.oneOffTarget / maxVal * 100) %>%; left:-2px; right:-2px; border-top:2px dashed var(--plum-dark); opacity:0.5;"></div>
+                    <% } %>
+                  </div>
+                  <div style="flex:1; background:var(--orange); border-radius:3px 3px 0 0; height:<%= (h.mrgp / maxVal * 100) %>%; min-height:2px;" title="MRGP: £<%= h.mrgp.toFixed(0) %>"></div>
+                  <div style="flex:1; background:var(--success); border-radius:3px 3px 0 0; height:<%= (h.commission / maxVal * 100) %>%; min-height:2px;" title="Commission: £<%= h.commission.toFixed(0) %>"></div>
+                </div>
+                <div style="font-size:0.65rem; color:var(--text-light); margin-top:4px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%;">
+                  <%= h.month.split(' ')[0].substring(0,3) %>
+                </div>
+              </div>
+            <% }) %>
+          </div>
+        </div>
+
+        <!-- Monthly breakdown table -->
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Deals</th>
+                <th>One Off GP</th>
+                <th>Target</th>
+                <th>% Target</th>
+                <th>MRGP</th>
+                <th>Target</th>
+                <th>% Target</th>
+                <th>Commission</th>
+                <th>Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% history.forEach(h => { %>
+              <tr>
+                <td><%= h.month %></td>
+                <td><%= h.dealCount %></td>
+                <td>&pound;<%= h.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= h.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>
+                  <% if (h.oneOffTarget > 0) { %>
+                    <span class="badge <%= h.oneOffPct >= 100 ? 'badge-paid' : (h.oneOffPct >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= h.oneOffPct.toFixed(0) %>%</span>
+                  <% } else { %>-<% } %>
+                </td>
+                <td>&pound;<%= h.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= h.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>
+                  <% if (h.mrgpTarget > 0) { %>
+                    <span class="badge <%= h.mrgpPct >= 100 ? 'badge-paid' : (h.mrgpPct >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= h.mrgpPct.toFixed(0) %>%</span>
+                  <% } else { %>-<% } %>
+                </td>
+                <td style="font-weight:600;">&pound;<%= h.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= h.paid.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              </tr>
+              <% }) %>
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:700; background:var(--plum-lightest);">
+                <td>Total (6 Months)</td>
+                <td><%= historyTotals.deals %></td>
+                <td>&pound;<%= historyTotals.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= historyTotals.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>
+                  <% if (historyTotals.oneOffTarget > 0) { %>
+                    <%= (historyTotals.oneOffGP / historyTotals.oneOffTarget * 100).toFixed(0) %>%
+                  <% } else { %>-<% } %>
+                </td>
+                <td>&pound;<%= historyTotals.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= historyTotals.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>
+                  <% if (historyTotals.mrgpTarget > 0) { %>
+                    <%= (historyTotals.mrgp / historyTotals.mrgpTarget * 100).toFixed(0) %>%
+                  <% } else { %>-<% } %>
+                </td>
+                <td>&pound;<%= historyTotals.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= historyTotals.paid.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       <% } %>
     </div>
   </div>

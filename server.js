@@ -634,8 +634,39 @@ app.get('/commissions/dashboard', requireLogin, (req, res) => {
 
   const managers = db.prepare("SELECT email, name FROM users WHERE role = 'manager' ORDER BY name").all();
 
+  // 6-month performance history
+  const allMonths = db.prepare(`
+    SELECT DISTINCT month FROM commission_deals WHERE account_manager_email = ? ORDER BY month ASC
+  `).all(email).map(m => m.month);
+  const last6 = allMonths.slice(-6);
+  const history = last6.map(m => {
+    const mDeals = db.prepare(`SELECT * FROM commission_deals WHERE account_manager_email = ? AND month = ?`).all(email, m);
+    const mTarget = db.prepare(`SELECT * FROM commission_targets WHERE user_email = ? AND month = ?`).get(email, m);
+    const qualifying = mDeals.filter(d => d.qualifies);
+    const oneOffGP = qualifying.reduce((s, d) => s + d.one_off_gp, 0);
+    const mrgp = qualifying.reduce((s, d) => s + d.mrgp, 0);
+    const commission = mDeals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    const paid = mDeals.filter(d => d.paid).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    return {
+      month: m, dealCount: mDeals.length, oneOffGP, mrgp, commission, paid,
+      oneOffTarget: mTarget ? mTarget.one_off_gp_target : 0,
+      mrgpTarget: mTarget ? mTarget.mrgp_target : 0,
+      oneOffPct: mTarget && mTarget.one_off_gp_target > 0 ? (oneOffGP / mTarget.one_off_gp_target * 100) : 0,
+      mrgpPct: mTarget && mTarget.mrgp_target > 0 ? (mrgp / mTarget.mrgp_target * 100) : 0
+    };
+  });
+  const historyTotals = {
+    deals: history.reduce((s, h) => s + h.dealCount, 0),
+    oneOffGP: history.reduce((s, h) => s + h.oneOffGP, 0),
+    mrgp: history.reduce((s, h) => s + h.mrgp, 0),
+    commission: history.reduce((s, h) => s + h.commission, 0),
+    paid: history.reduce((s, h) => s + h.paid, 0),
+    oneOffTarget: history.reduce((s, h) => s + h.oneOffTarget, 0),
+    mrgpTarget: history.reduce((s, h) => s + h.mrgpTarget, 0)
+  };
+
   res.render('commissions/dashboard', {
-    deals, target, months, activeMonth, totalOneOffGP, totalMRGP, totalCommission, deliveredComm, managers
+    deals, target, months, activeMonth, totalOneOffGP, totalMRGP, totalCommission, deliveredComm, managers, history, historyTotals
   });
 });
 
@@ -737,8 +768,69 @@ app.get('/commissions/manager', requireManager, (req, res) => {
   const teamTotalComm = teamKPIs.reduce((s, k) => s + k.totalComm, 0);
   const teamDeliveredComm = teamKPIs.reduce((s, k) => s + k.deliveredComm, 0);
 
+  // 6-month performance history for each team member
+  const allTeamMonths = db.prepare(`
+    SELECT DISTINCT month FROM commission_deals WHERE approver_email = ? ORDER BY month ASC
+  `).all(email).map(m => m.month);
+  const last6Months = allTeamMonths.slice(-6);
+
+  // All team members who have ever had deals under this manager
+  const allTeamEmails = db.prepare(`
+    SELECT DISTINCT account_manager_email, account_manager_name FROM commission_deals WHERE approver_email = ?
+  `).all(email);
+
+  const teamHistory = allTeamEmails.map(te => {
+    const monthlyData = last6Months.map(m => {
+      const mDeals = db.prepare(`SELECT * FROM commission_deals WHERE account_manager_email = ? AND month = ? AND approver_email = ?`).all(te.account_manager_email, m, email);
+      const mTarget = db.prepare(`SELECT * FROM commission_targets WHERE user_email = ? AND month = ?`).get(te.account_manager_email, m);
+      const qualifying = mDeals.filter(d => d.qualifies);
+      const oneOffGP = qualifying.reduce((s, d) => s + d.one_off_gp, 0);
+      const mrgp = qualifying.reduce((s, d) => s + d.mrgp, 0);
+      const commission = mDeals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+      return {
+        month: m, dealCount: mDeals.length, oneOffGP, mrgp, commission,
+        oneOffTarget: mTarget ? mTarget.one_off_gp_target : 0,
+        mrgpTarget: mTarget ? mTarget.mrgp_target : 0,
+        oneOffPct: mTarget && mTarget.one_off_gp_target > 0 ? (oneOffGP / mTarget.one_off_gp_target * 100) : 0,
+        mrgpPct: mTarget && mTarget.mrgp_target > 0 ? (mrgp / mTarget.mrgp_target * 100) : 0
+      };
+    });
+    const totals = {
+      deals: monthlyData.reduce((s, h) => s + h.dealCount, 0),
+      oneOffGP: monthlyData.reduce((s, h) => s + h.oneOffGP, 0),
+      mrgp: monthlyData.reduce((s, h) => s + h.mrgp, 0),
+      commission: monthlyData.reduce((s, h) => s + h.commission, 0),
+      oneOffTarget: monthlyData.reduce((s, h) => s + h.oneOffTarget, 0),
+      mrgpTarget: monthlyData.reduce((s, h) => s + h.mrgpTarget, 0)
+    };
+    return { email: te.account_manager_email, name: te.account_manager_name, monthlyData, totals };
+  });
+
+  // Team aggregate history per month
+  const teamMonthlyAgg = last6Months.map(m => {
+    const mData = teamHistory.map(th => th.monthlyData.find(md => md.month === m)).filter(Boolean);
+    return {
+      month: m,
+      dealCount: mData.reduce((s, d) => s + d.dealCount, 0),
+      oneOffGP: mData.reduce((s, d) => s + d.oneOffGP, 0),
+      mrgp: mData.reduce((s, d) => s + d.mrgp, 0),
+      commission: mData.reduce((s, d) => s + d.commission, 0),
+      oneOffTarget: mData.reduce((s, d) => s + d.oneOffTarget, 0),
+      mrgpTarget: mData.reduce((s, d) => s + d.mrgpTarget, 0)
+    };
+  });
+  const teamAggTotals = {
+    deals: teamMonthlyAgg.reduce((s, m) => s + m.dealCount, 0),
+    oneOffGP: teamMonthlyAgg.reduce((s, m) => s + m.oneOffGP, 0),
+    mrgp: teamMonthlyAgg.reduce((s, m) => s + m.mrgp, 0),
+    commission: teamMonthlyAgg.reduce((s, m) => s + m.commission, 0),
+    oneOffTarget: teamMonthlyAgg.reduce((s, m) => s + m.oneOffTarget, 0),
+    mrgpTarget: teamMonthlyAgg.reduce((s, m) => s + m.mrgpTarget, 0)
+  };
+
   res.render('commissions/manager', {
-    pendingDeals, monthDeals, months, activeMonth, teamKPIs, teamTotalComm, teamDeliveredComm
+    pendingDeals, monthDeals, months, activeMonth, teamKPIs, teamTotalComm, teamDeliveredComm,
+    teamHistory, teamMonthlyAgg, teamAggTotals, last6Months
   });
 });
 

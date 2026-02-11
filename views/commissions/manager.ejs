@@ -38,6 +38,7 @@
 
   <div class="tabs">
     <button class="tab active" onclick="showTab('kpi')">Team KPIs</button>
+    <button class="tab" onclick="showTab('performance')">Performance (6 Months)</button>
     <button class="tab" onclick="showTab('pending')">Pending Approval (<%= pendingDeals.length %>)</button>
     <button class="tab" onclick="showTab('all-deals')">All Deals - <%= activeMonth %></button>
   </div>
@@ -80,6 +81,160 @@
       </div>
       <% }) %>
     <% } %>
+  </div>
+
+  <!-- 6-Month Performance -->
+  <div id="tab-performance" class="tab-content">
+    <!-- Team Aggregate -->
+    <div class="card">
+      <h2>Team Performance - Last 6 Months</h2>
+      <% if (last6Months.length === 0) { %>
+        <div class="empty-state">No historical data available.</div>
+      <% } else { %>
+        <!-- Visual chart -->
+        <div class="chart-container" style="margin-bottom:1.5rem;">
+          <div style="display:flex; gap:1rem; margin-bottom:0.5rem;">
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--plum);border-radius:2px;vertical-align:middle;"></span> One Off GP</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--orange);border-radius:2px;vertical-align:middle;"></span> MRGP</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--success);border-radius:2px;vertical-align:middle;"></span> Commission</span>
+          </div>
+          <% const teamMaxVal = Math.max(...teamMonthlyAgg.map(m => Math.max(m.oneOffGP, m.oneOffTarget || 0)), 1); %>
+          <div style="display:flex; align-items:flex-end; gap:4px; height:140px;">
+            <% teamMonthlyAgg.forEach(m => { %>
+              <div style="flex:1; display:flex; flex-direction:column; align-items:center; height:100%;">
+                <div style="flex:1; display:flex; align-items:flex-end; gap:2px; width:100%;">
+                  <div style="flex:1; background:var(--plum); border-radius:3px 3px 0 0; height:<%= (m.oneOffGP / teamMaxVal * 100) %>%; min-height:2px; position:relative;" title="One Off GP: £<%= m.oneOffGP.toFixed(0) %>">
+                    <% if (m.oneOffTarget > 0) { %>
+                    <div style="position:absolute; bottom:<%= (m.oneOffTarget / teamMaxVal * 100) %>%; left:-2px; right:-2px; border-top:2px dashed var(--plum-dark); opacity:0.5;"></div>
+                    <% } %>
+                  </div>
+                  <div style="flex:1; background:var(--orange); border-radius:3px 3px 0 0; height:<%= (m.mrgp / teamMaxVal * 100) %>%; min-height:2px;" title="MRGP: £<%= m.mrgp.toFixed(0) %>"></div>
+                  <div style="flex:1; background:var(--success); border-radius:3px 3px 0 0; height:<%= (m.commission / teamMaxVal * 100) %>%; min-height:2px;" title="Commission: £<%= m.commission.toFixed(0) %>"></div>
+                </div>
+                <div style="font-size:0.65rem; color:var(--text-light); margin-top:4px; text-align:center; white-space:nowrap;">
+                  <%= m.month.split(' ')[0].substring(0,3) %>
+                </div>
+              </div>
+            <% }) %>
+          </div>
+        </div>
+
+        <!-- Team aggregate table -->
+        <div class="table-wrapper" style="margin-bottom:1.5rem;">
+          <table>
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>Deals</th>
+                <th>One Off GP</th>
+                <th>Target</th>
+                <th>% Target</th>
+                <th>MRGP</th>
+                <th>Target</th>
+                <th>% Target</th>
+                <th>Commission</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% teamMonthlyAgg.forEach(m => { %>
+              <tr>
+                <td><%= m.month %></td>
+                <td><%= m.dealCount %></td>
+                <td>&pound;<%= m.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= m.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>
+                  <% if (m.oneOffTarget > 0) { %>
+                    <span class="badge <%= (m.oneOffGP/m.oneOffTarget*100) >= 100 ? 'badge-paid' : ((m.oneOffGP/m.oneOffTarget*100) >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= (m.oneOffGP/m.oneOffTarget*100).toFixed(0) %>%</span>
+                  <% } else { %>-<% } %>
+                </td>
+                <td>&pound;<%= m.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= m.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>
+                  <% if (m.mrgpTarget > 0) { %>
+                    <span class="badge <%= (m.mrgp/m.mrgpTarget*100) >= 100 ? 'badge-paid' : ((m.mrgp/m.mrgpTarget*100) >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= (m.mrgp/m.mrgpTarget*100).toFixed(0) %>%</span>
+                  <% } else { %>-<% } %>
+                </td>
+                <td style="font-weight:600;">&pound;<%= m.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              </tr>
+              <% }) %>
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:700; background:var(--plum-lightest);">
+                <td>Total</td>
+                <td><%= teamAggTotals.deals %></td>
+                <td>&pound;<%= teamAggTotals.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= teamAggTotals.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td><% if (teamAggTotals.oneOffTarget > 0) { %><%= (teamAggTotals.oneOffGP/teamAggTotals.oneOffTarget*100).toFixed(0) %>%<% } else { %>-<% } %></td>
+                <td>&pound;<%= teamAggTotals.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td>&pound;<%= teamAggTotals.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+                <td><% if (teamAggTotals.mrgpTarget > 0) { %><%= (teamAggTotals.mrgp/teamAggTotals.mrgpTarget*100).toFixed(0) %>%<% } else { %>-<% } %></td>
+                <td>&pound;<%= teamAggTotals.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      <% } %>
+    </div>
+
+    <!-- Individual breakdowns -->
+    <% teamHistory.forEach(th => { %>
+    <div class="card">
+      <h2 style="margin-bottom:0.75rem;"><%= th.name %></h2>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th>Deals</th>
+              <th>One Off GP</th>
+              <th>Target</th>
+              <th>% Target</th>
+              <th>MRGP</th>
+              <th>Target</th>
+              <th>% Target</th>
+              <th>Commission</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% th.monthlyData.forEach(h => { %>
+            <tr>
+              <td><%= h.month %></td>
+              <td><%= h.dealCount %></td>
+              <td>&pound;<%= h.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+              <td>&pound;<%= h.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+              <td>
+                <% if (h.oneOffTarget > 0) { %>
+                  <span class="badge <%= h.oneOffPct >= 100 ? 'badge-paid' : (h.oneOffPct >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= h.oneOffPct.toFixed(0) %>%</span>
+                <% } else { %>-<% } %>
+              </td>
+              <td>&pound;<%= h.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+              <td>&pound;<%= h.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+              <td>
+                <% if (h.mrgpTarget > 0) { %>
+                  <span class="badge <%= h.mrgpPct >= 100 ? 'badge-paid' : (h.mrgpPct >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= h.mrgpPct.toFixed(0) %>%</span>
+                <% } else { %>-<% } %>
+              </td>
+              <td style="font-weight:600;">&pound;<%= h.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+            </tr>
+            <% }) %>
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700; background:var(--plum-lightest);">
+              <td>Total</td>
+              <td><%= th.totals.deals %></td>
+              <td>&pound;<%= th.totals.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+              <td>&pound;<%= th.totals.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+              <td><% if (th.totals.oneOffTarget > 0) { %><%= (th.totals.oneOffGP/th.totals.oneOffTarget*100).toFixed(0) %>%<% } else { %>-<% } %></td>
+              <td>&pound;<%= th.totals.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+              <td>&pound;<%= th.totals.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
+              <td><% if (th.totals.mrgpTarget > 0) { %><%= (th.totals.mrgp/th.totals.mrgpTarget*100).toFixed(0) %>%<% } else { %>-<% } %></td>
+              <td>&pound;<%= th.totals.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+    <% }) %>
   </div>
 
   <!-- Pending Approval -->
