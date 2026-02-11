@@ -259,7 +259,8 @@ const seedCommissions = db.transaction(() => {
   let custIdx = 0;
 
   for (const am of accountManagers) {
-    const oneOffTarget = am.salary * 3.5;
+    const monthlySalary = am.salary / 12;
+    const oneOffTarget = monthlySalary * 3.5;
     const mrgpTarget = oneOffTarget * 0.0625;
 
     // Set targets for each month

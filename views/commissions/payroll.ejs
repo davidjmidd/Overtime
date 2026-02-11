@@ -215,8 +215,9 @@
             <thead>
               <tr>
                 <th>Account Manager</th>
-                <th>Salary</th>
-                <th>One Off GP Target (3.5x)</th>
+                <th>Annual Salary</th>
+                <th>Monthly Salary</th>
+                <th>One Off GP Target (3.5x Monthly)</th>
                 <th>MRGP Target (6.25%)</th>
               </tr>
             </thead>
@@ -225,6 +226,7 @@
               <tr>
                 <td><%= t.name || t.user_email %></td>
                 <td>&pound;<%= t.salary.toLocaleString('en-GB', {minimumFractionDigits:0}) %></td>
+                <td>&pound;<%= (t.salary / 12).toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
                 <td>&pound;<%= t.one_off_gp_target.toLocaleString('en-GB', {minimumFractionDigits:0}) %></td>
                 <td>&pound;<%= t.mrgp_target.toLocaleString('en-GB', {minimumFractionDigits:0}) %></td>
               </tr>
@@ -258,7 +260,7 @@
         <button type="submit" class="btn btn-primary">Set Target</button>
       </form>
       <p style="font-size:0.8rem; color:var(--text-light); margin-top:0.5rem;">
-        One Off GP Target = Salary &times; 3.5 &nbsp;|&nbsp; MRGP Target = One Off GP Target &times; 6.25%
+        One Off GP Target = Monthly Salary (Annual &divide; 12) &times; 3.5 &nbsp;|&nbsp; MRGP Target = One Off GP Target &times; 6.25%
       </p>
     </div>
   </div>

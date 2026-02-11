@@ -30,13 +30,19 @@
       <div class="progress-bar"><div class="progress-fill" style="width:<%= Math.min(100, totalMRGP / target.mrgp_target * 100) %>%; background:<%= totalMRGP >= target.mrgp_target ? 'var(--success)' : 'var(--orange)' %>;"></div></div>
       <div style="font-size:0.75rem; color:var(--text-light); margin-top:0.25rem;"><%= (totalMRGP / target.mrgp_target * 100).toFixed(1) %>% of target</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-value">&pound;<%= totalCommission.toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
-      <div class="stat-label">Total Commission</div>
+    <div class="stat-card" style="border-left:3px solid <%= targetMet ? 'var(--success)' : 'var(--danger)' %>;">
+      <div class="stat-value">&pound;<%= qualifiedCommission.toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
+      <div class="stat-label">Qualified Commission</div>
+      <% if (!targetMet) { %>
+        <div style="font-size:0.75rem; color:var(--danger); margin-top:0.25rem; font-weight:600;">Target not met - commission not payable</div>
+      <% } else { %>
+        <div style="font-size:0.75rem; color:var(--success); margin-top:0.25rem; font-weight:600;">Target met</div>
+      <% } %>
     </div>
-    <div class="stat-card">
-      <div class="stat-value">&pound;<%= deliveredComm.toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
-      <div class="stat-label">Payable (Delivered)</div>
+    <div class="stat-card" style="border-left:3px solid var(--plum);">
+      <div class="stat-value">&pound;<%= inTheBank.toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
+      <div class="stat-label">In the Bank</div>
+      <div style="font-size:0.75rem; color:var(--text-light); margin-top:0.25rem;"><%= inTheBankCount %> deal<%= inTheBankCount !== 1 ? 's' : '' %> approved &amp; delivered, awaiting payment</div>
     </div>
   </div>
   <% } else { %>
@@ -96,6 +102,8 @@
                 <td>
                   <% if (d.paid) { %>
                     <span class="badge badge-paid">Paid</span>
+                  <% } else if (d.approved && d.project_delivered) { %>
+                    <span class="badge" style="background:var(--plum-lightest); color:var(--plum-dark);">In the Bank</span>
                   <% } else if (d.approved) { %>
                     <span class="badge badge-approved">Approved</span>
                   <% } else if (d.rejection_comment) { %>
@@ -117,8 +125,10 @@
             </tbody>
           </table>
         </div>
-        <% if (!deals.every(d => d.qualifies)) { %>
-        <p style="margin-top:0.75rem; font-size:0.8rem; color:var(--text-light);">* Non-qualifying deals are excluded from target calculations.</p>
+        <% if (!targetMet && target) { %>
+        <div style="margin-top:0.75rem; padding:0.75rem; background:var(--orange-lightest); border-left:3px solid var(--danger); border-radius:4px; font-size:0.85rem;">
+          <strong>Target not met this month.</strong> Commission will not be payable until One Off GP target (&pound;<%= target.one_off_gp_target.toLocaleString('en-GB', {minimumFractionDigits:0}) %>) is reached.
+        </div>
         <% } %>
       <% } %>
     </div>
@@ -131,31 +141,95 @@
       <% if (history.length === 0) { %>
         <div class="empty-state">No historical data available.</div>
       <% } else { %>
-        <!-- Visual chart -->
-        <div class="chart-container" style="margin-bottom:1.5rem;">
-          <div style="display:flex; gap:1rem; margin-bottom:0.5rem;">
-            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--plum);border-radius:2px;vertical-align:middle;"></span> One Off GP</span>
-            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--orange);border-radius:2px;vertical-align:middle;"></span> MRGP</span>
-            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--success);border-radius:2px;vertical-align:middle;"></span> Commission Earned</span>
+
+        <!-- SVG Trend Chart -->
+        <%
+          const chartW = 680, chartH = 220, padL = 60, padR = 20, padT = 20, padB = 40;
+          const plotW = chartW - padL - padR;
+          const plotH = chartH - padT - padB;
+          const n = history.length;
+          const maxGP = Math.max(...history.map(h => Math.max(h.oneOffGP, h.oneOffTarget || 0, h.mrgp)), 1);
+          const maxComm = Math.max(...history.map(h => Math.max(h.commission, h.paid)), 1);
+          function xPos(i) { return padL + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2); }
+          function yGP(v) { return padT + plotH - (v / maxGP * plotH); }
+          function yComm(v) { return padT + plotH - (v / maxComm * plotH); }
+        %>
+        <div style="margin-bottom:1.5rem;">
+          <div style="display:flex; gap:1rem; margin-bottom:0.5rem; flex-wrap:wrap;">
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:16px;height:3px;background:var(--plum);vertical-align:middle;margin-right:4px;"></span> One Off GP</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:16px;height:3px;background:var(--plum);vertical-align:middle;margin-right:4px;border-top:2px dashed var(--plum-dark);"></span> GP Target</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:16px;height:3px;background:var(--orange);vertical-align:middle;margin-right:4px;"></span> MRGP</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--success);border-radius:2px;vertical-align:middle;margin-right:4px;"></span> Commission Paid</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--plum-lightest);border:1px solid var(--plum);border-radius:2px;vertical-align:middle;margin-right:4px;"></span> In the Bank</span>
           </div>
-          <% const maxVal = Math.max(...history.map(h => Math.max(h.oneOffGP, h.oneOffTarget || 0)), 1); %>
-          <div style="display:flex; align-items:flex-end; gap:4px; height:140px;">
-            <% history.forEach(h => { %>
-              <div style="flex:1; display:flex; flex-direction:column; align-items:center; height:100%;">
-                <div style="flex:1; display:flex; align-items:flex-end; gap:2px; width:100%;">
-                  <div style="flex:1; background:var(--plum); border-radius:3px 3px 0 0; height:<%= (h.oneOffGP / maxVal * 100) %>%; min-height:2px; position:relative;" title="One Off GP: £<%= h.oneOffGP.toFixed(0) %>">
-                    <% if (h.oneOffTarget > 0) { %>
-                    <div style="position:absolute; bottom:<%= (h.oneOffTarget / maxVal * 100) %>%; left:-2px; right:-2px; border-top:2px dashed var(--plum-dark); opacity:0.5;"></div>
-                    <% } %>
-                  </div>
-                  <div style="flex:1; background:var(--orange); border-radius:3px 3px 0 0; height:<%= (h.mrgp / maxVal * 100) %>%; min-height:2px;" title="MRGP: £<%= h.mrgp.toFixed(0) %>"></div>
-                  <div style="flex:1; background:var(--success); border-radius:3px 3px 0 0; height:<%= (h.commission / maxVal * 100) %>%; min-height:2px;" title="Commission: £<%= h.commission.toFixed(0) %>"></div>
-                </div>
-                <div style="font-size:0.65rem; color:var(--text-light); margin-top:4px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%;">
-                  <%= h.month.split(' ')[0].substring(0,3) %>
-                </div>
-              </div>
+          <svg viewBox="0 0 <%= chartW %> <%= chartH %>" style="width:100%; max-width:700px; height:auto; font-family:inherit;">
+            <!-- Grid lines -->
+            <% for (let i = 0; i <= 4; i++) { %>
+              <line x1="<%= padL %>" y1="<%= padT + (plotH/4)*i %>" x2="<%= padL + plotW %>" y2="<%= padT + (plotH/4)*i %>" stroke="var(--border)" stroke-width="0.5"/>
+              <text x="<%= padL - 6 %>" y="<%= padT + (plotH/4)*i + 4 %>" text-anchor="end" font-size="9" fill="var(--text-light)">&pound;<%= Math.round(maxGP * (1 - i/4) / 1000) %>k</text>
+            <% } %>
+
+            <!-- Target line (dashed) -->
+            <% if (history.some(h => h.oneOffTarget > 0)) { %>
+              <polyline fill="none" stroke="var(--plum-dark)" stroke-width="1.5" stroke-dasharray="4,3"
+                points="<%= history.map((h, i) => xPos(i) + ',' + yGP(h.oneOffTarget)).join(' ') %>"/>
+            <% } %>
+
+            <!-- One Off GP line -->
+            <polyline fill="none" stroke="var(--plum)" stroke-width="2.5"
+              points="<%= history.map((h, i) => xPos(i) + ',' + yGP(h.oneOffGP)).join(' ') %>"/>
+            <% history.forEach((h, i) => { %>
+              <circle cx="<%= xPos(i) %>" cy="<%= yGP(h.oneOffGP) %>" r="4" fill="<%= h.targetMet ? 'var(--success)' : 'var(--danger)' %>" stroke="white" stroke-width="1.5"/>
             <% }) %>
+
+            <!-- MRGP line -->
+            <polyline fill="none" stroke="var(--orange)" stroke-width="2"
+              points="<%= history.map((h, i) => xPos(i) + ',' + yGP(h.mrgp)).join(' ') %>"/>
+            <% history.forEach((h, i) => { %>
+              <circle cx="<%= xPos(i) %>" cy="<%= yGP(h.mrgp) %>" r="3" fill="var(--orange)" stroke="white" stroke-width="1"/>
+            <% }) %>
+
+            <!-- Commission bars (paid + in bank) -->
+            <% const barW = Math.min(30, plotW / n * 0.4); %>
+            <% history.forEach((h, i) => { %>
+              <% const totalBar = h.paid + h.inTheBank; const barMax = maxGP; %>
+              <% if (h.inTheBank > 0) { %>
+                <rect x="<%= xPos(i) - barW/2 %>" y="<%= yGP(totalBar) %>" width="<%= barW %>" height="<%= Math.max(1, plotH - (yGP(totalBar) - padT)) %>" fill="var(--plum-lightest)" stroke="var(--plum)" stroke-width="0.5" rx="2" opacity="0.7"/>
+              <% } %>
+              <% if (h.paid > 0) { %>
+                <rect x="<%= xPos(i) - barW/2 %>" y="<%= yGP(h.paid) %>" width="<%= barW %>" height="<%= Math.max(1, plotH - (yGP(h.paid) - padT)) %>" fill="var(--success)" rx="2" opacity="0.8"/>
+              <% } %>
+            <% }) %>
+
+            <!-- Month labels -->
+            <% history.forEach((h, i) => { %>
+              <text x="<%= xPos(i) %>" y="<%= chartH - 8 %>" text-anchor="middle" font-size="10" fill="var(--text-light)">
+                <%= h.month.split(' ')[0].substring(0,3) %> '<%= h.month.split(' ')[1].substring(2) %>
+              </text>
+              <% if (!h.targetMet && h.oneOffTarget > 0) { %>
+                <text x="<%= xPos(i) %>" y="<%= chartH %>" text-anchor="middle" font-size="8" fill="var(--danger)" font-weight="600">MISSED</text>
+              <% } %>
+            <% }) %>
+          </svg>
+        </div>
+
+        <!-- Summary stats for the 6 months -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:0.75rem; margin-bottom:1.5rem;">
+          <div style="text-align:center; padding:0.75rem; background:var(--plum-lightest); border-radius:8px;">
+            <div style="font-size:1.1rem; font-weight:700;">&pound;<%= historyTotals.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+            <div style="font-size:0.75rem; color:var(--text-light);">Qualified Commission</div>
+          </div>
+          <div style="text-align:center; padding:0.75rem; background:var(--success-light, #e8f5e9); border-radius:8px;">
+            <div style="font-size:1.1rem; font-weight:700;">&pound;<%= historyTotals.paid.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+            <div style="font-size:0.75rem; color:var(--text-light);">Total Paid</div>
+          </div>
+          <div style="text-align:center; padding:0.75rem; background:var(--plum-lightest); border-radius:8px;">
+            <div style="font-size:1.1rem; font-weight:700;">&pound;<%= historyTotals.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+            <div style="font-size:0.75rem; color:var(--text-light);">In the Bank</div>
+          </div>
+          <div style="text-align:center; padding:0.75rem; border-radius:8px; background:<%= historyTotals.monthsMet === historyTotals.monthsTotal ? 'var(--success-light, #e8f5e9)' : 'var(--orange-lightest)' %>;">
+            <div style="font-size:1.1rem; font-weight:700;"><%= historyTotals.monthsMet %>/<%= historyTotals.monthsTotal %></div>
+            <div style="font-size:0.75rem; color:var(--text-light);">Months Target Met</div>
           </div>
         </div>
 
@@ -171,15 +245,23 @@
                 <th>% Target</th>
                 <th>MRGP</th>
                 <th>Target</th>
-                <th>% Target</th>
                 <th>Commission</th>
+                <th>Qualified</th>
+                <th>In Bank</th>
                 <th>Paid</th>
               </tr>
             </thead>
             <tbody>
               <% history.forEach(h => { %>
-              <tr>
-                <td><%= h.month %></td>
+              <tr style="<%= !h.targetMet && h.oneOffTarget > 0 ? 'opacity:0.6;' : '' %>">
+                <td>
+                  <%= h.month %>
+                  <% if (h.targetMet) { %>
+                    <span style="color:var(--success); font-size:0.8rem;" title="Target met">&#10003;</span>
+                  <% } else if (h.oneOffTarget > 0) { %>
+                    <span style="color:var(--danger); font-size:0.8rem;" title="Target missed">&#10007;</span>
+                  <% } %>
+                </td>
                 <td><%= h.dealCount %></td>
                 <td>&pound;<%= h.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
                 <td>&pound;<%= h.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
@@ -190,12 +272,17 @@
                 </td>
                 <td>&pound;<%= h.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
                 <td>&pound;<%= h.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
-                <td>
-                  <% if (h.mrgpTarget > 0) { %>
-                    <span class="badge <%= h.mrgpPct >= 100 ? 'badge-paid' : (h.mrgpPct >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= h.mrgpPct.toFixed(0) %>%</span>
-                  <% } else { %>-<% } %>
+                <td>&pound;<%= h.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td style="font-weight:600;">
+                  <% if (h.targetMet) { %>
+                    &pound;<%= h.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %>
+                  <% } else if (h.oneOffTarget > 0) { %>
+                    <span style="color:var(--danger);">&pound;0.00</span>
+                  <% } else { %>
+                    -
+                  <% } %>
                 </td>
-                <td style="font-weight:600;">&pound;<%= h.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= h.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
                 <td>&pound;<%= h.paid.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
               </tr>
               <% }) %>
@@ -213,17 +300,18 @@
                 </td>
                 <td>&pound;<%= historyTotals.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
                 <td>&pound;<%= historyTotals.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
-                <td>
-                  <% if (historyTotals.mrgpTarget > 0) { %>
-                    <%= (historyTotals.mrgp / historyTotals.mrgpTarget * 100).toFixed(0) %>%
-                  <% } else { %>-<% } %>
-                </td>
                 <td>&pound;<%= historyTotals.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= historyTotals.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= historyTotals.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
                 <td>&pound;<%= historyTotals.paid.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
               </tr>
             </tfoot>
           </table>
         </div>
+        <p style="margin-top:0.75rem; font-size:0.8rem; color:var(--text-light);">
+          Monthly target must be met to qualify for commission. Months where target is missed show &pound;0 qualified commission.
+          <br>"In the Bank" = approved &amp; delivered deals awaiting payment.
+        </p>
       <% } %>
     </div>
   </div>
@@ -290,9 +378,9 @@
       </form>
       <div style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid var(--border); font-size:0.85rem; color:var(--text-light);">
         <strong>Commission Rates:</strong><br>
-        One Off GP: 10% (20% for new customers)<br>
-        MRGP: 1x for 12m, 2x for 13-36m, 3x for 60m+<br>
-        Payable once project is delivered
+        Target = Monthly Salary &times; 3.5 (One Off GP) | MRGP Target = One Off GP Target &times; 6.25%<br>
+        One Off GP: 10% (20% for new customers) | MRGP: 1x for 12m, 2x for 13-36m, 3x for 60m+<br>
+        Monthly target must be met to qualify. Payable once project is delivered.
       </div>
     </div>
   </div>

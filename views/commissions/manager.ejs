@@ -91,31 +91,74 @@
       <% if (last6Months.length === 0) { %>
         <div class="empty-state">No historical data available.</div>
       <% } else { %>
-        <!-- Visual chart -->
-        <div class="chart-container" style="margin-bottom:1.5rem;">
-          <div style="display:flex; gap:1rem; margin-bottom:0.5rem;">
-            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--plum);border-radius:2px;vertical-align:middle;"></span> One Off GP</span>
-            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--orange);border-radius:2px;vertical-align:middle;"></span> MRGP</span>
-            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--success);border-radius:2px;vertical-align:middle;"></span> Commission</span>
+
+        <!-- SVG Trend Chart -->
+        <%
+          const mChartW = 680, mChartH = 220, mPadL = 60, mPadR = 20, mPadT = 20, mPadB = 40;
+          const mPlotW = mChartW - mPadL - mPadR;
+          const mPlotH = mChartH - mPadT - mPadB;
+          const mN = teamMonthlyAgg.length;
+          const mMaxGP = Math.max(...teamMonthlyAgg.map(m => Math.max(m.oneOffGP, m.oneOffTarget || 0, m.mrgp)), 1);
+          function mXPos(i) { return mPadL + (mN > 1 ? (i / (mN - 1)) * mPlotW : mPlotW / 2); }
+          function mYGP(v) { return mPadT + mPlotH - (v / mMaxGP * mPlotH); }
+        %>
+        <div style="margin-bottom:1.5rem;">
+          <div style="display:flex; gap:1rem; margin-bottom:0.5rem; flex-wrap:wrap;">
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:16px;height:3px;background:var(--plum);vertical-align:middle;margin-right:4px;"></span> One Off GP</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:16px;height:3px;background:var(--plum);vertical-align:middle;margin-right:4px;border-top:2px dashed var(--plum-dark);"></span> GP Target</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:16px;height:3px;background:var(--orange);vertical-align:middle;margin-right:4px;"></span> MRGP</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--success);border-radius:2px;vertical-align:middle;margin-right:4px;"></span> Paid</span>
+            <span style="font-size:0.75rem;"><span style="display:inline-block;width:12px;height:12px;background:var(--plum-lightest);border:1px solid var(--plum);border-radius:2px;vertical-align:middle;margin-right:4px;"></span> In the Bank</span>
           </div>
-          <% const teamMaxVal = Math.max(...teamMonthlyAgg.map(m => Math.max(m.oneOffGP, m.oneOffTarget || 0)), 1); %>
-          <div style="display:flex; align-items:flex-end; gap:4px; height:140px;">
-            <% teamMonthlyAgg.forEach(m => { %>
-              <div style="flex:1; display:flex; flex-direction:column; align-items:center; height:100%;">
-                <div style="flex:1; display:flex; align-items:flex-end; gap:2px; width:100%;">
-                  <div style="flex:1; background:var(--plum); border-radius:3px 3px 0 0; height:<%= (m.oneOffGP / teamMaxVal * 100) %>%; min-height:2px; position:relative;" title="One Off GP: £<%= m.oneOffGP.toFixed(0) %>">
-                    <% if (m.oneOffTarget > 0) { %>
-                    <div style="position:absolute; bottom:<%= (m.oneOffTarget / teamMaxVal * 100) %>%; left:-2px; right:-2px; border-top:2px dashed var(--plum-dark); opacity:0.5;"></div>
-                    <% } %>
-                  </div>
-                  <div style="flex:1; background:var(--orange); border-radius:3px 3px 0 0; height:<%= (m.mrgp / teamMaxVal * 100) %>%; min-height:2px;" title="MRGP: £<%= m.mrgp.toFixed(0) %>"></div>
-                  <div style="flex:1; background:var(--success); border-radius:3px 3px 0 0; height:<%= (m.commission / teamMaxVal * 100) %>%; min-height:2px;" title="Commission: £<%= m.commission.toFixed(0) %>"></div>
-                </div>
-                <div style="font-size:0.65rem; color:var(--text-light); margin-top:4px; text-align:center; white-space:nowrap;">
-                  <%= m.month.split(' ')[0].substring(0,3) %>
-                </div>
-              </div>
+          <svg viewBox="0 0 <%= mChartW %> <%= mChartH %>" style="width:100%; max-width:700px; height:auto; font-family:inherit;">
+            <% for (let i = 0; i <= 4; i++) { %>
+              <line x1="<%= mPadL %>" y1="<%= mPadT + (mPlotH/4)*i %>" x2="<%= mPadL + mPlotW %>" y2="<%= mPadT + (mPlotH/4)*i %>" stroke="var(--border)" stroke-width="0.5"/>
+              <text x="<%= mPadL - 6 %>" y="<%= mPadT + (mPlotH/4)*i + 4 %>" text-anchor="end" font-size="9" fill="var(--text-light)">&pound;<%= Math.round(mMaxGP * (1 - i/4) / 1000) %>k</text>
+            <% } %>
+            <% if (teamMonthlyAgg.some(m => m.oneOffTarget > 0)) { %>
+              <polyline fill="none" stroke="var(--plum-dark)" stroke-width="1.5" stroke-dasharray="4,3"
+                points="<%= teamMonthlyAgg.map((m, i) => mXPos(i) + ',' + mYGP(m.oneOffTarget)).join(' ') %>"/>
+            <% } %>
+            <polyline fill="none" stroke="var(--plum)" stroke-width="2.5"
+              points="<%= teamMonthlyAgg.map((m, i) => mXPos(i) + ',' + mYGP(m.oneOffGP)).join(' ') %>"/>
+            <% teamMonthlyAgg.forEach((m, i) => { %>
+              <circle cx="<%= mXPos(i) %>" cy="<%= mYGP(m.oneOffGP) %>" r="4" fill="var(--plum)" stroke="white" stroke-width="1.5"/>
             <% }) %>
+            <polyline fill="none" stroke="var(--orange)" stroke-width="2"
+              points="<%= teamMonthlyAgg.map((m, i) => mXPos(i) + ',' + mYGP(m.mrgp)).join(' ') %>"/>
+            <% teamMonthlyAgg.forEach((m, i) => { %>
+              <circle cx="<%= mXPos(i) %>" cy="<%= mYGP(m.mrgp) %>" r="3" fill="var(--orange)" stroke="white" stroke-width="1"/>
+            <% }) %>
+            <% const mBarW = Math.min(30, mPlotW / mN * 0.4); %>
+            <% teamMonthlyAgg.forEach((m, i) => { %>
+              <% if (m.inTheBank > 0) { %>
+                <rect x="<%= mXPos(i) - mBarW/2 %>" y="<%= mYGP(m.paid + m.inTheBank) %>" width="<%= mBarW %>" height="<%= Math.max(1, mPlotH - (mYGP(m.paid + m.inTheBank) - mPadT)) %>" fill="var(--plum-lightest)" stroke="var(--plum)" stroke-width="0.5" rx="2" opacity="0.7"/>
+              <% } %>
+              <% if (m.paid > 0) { %>
+                <rect x="<%= mXPos(i) - mBarW/2 %>" y="<%= mYGP(m.paid) %>" width="<%= mBarW %>" height="<%= Math.max(1, mPlotH - (mYGP(m.paid) - mPadT)) %>" fill="var(--success)" rx="2" opacity="0.8"/>
+              <% } %>
+            <% }) %>
+            <% teamMonthlyAgg.forEach((m, i) => { %>
+              <text x="<%= mXPos(i) %>" y="<%= mChartH - 8 %>" text-anchor="middle" font-size="10" fill="var(--text-light)">
+                <%= m.month.split(' ')[0].substring(0,3) %> '<%= m.month.split(' ')[1].substring(2) %>
+              </text>
+            <% }) %>
+          </svg>
+        </div>
+
+        <!-- Team summary stats -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:0.75rem; margin-bottom:1.5rem;">
+          <div style="text-align:center; padding:0.75rem; background:var(--plum-lightest); border-radius:8px;">
+            <div style="font-size:1.1rem; font-weight:700;">&pound;<%= teamAggTotals.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+            <div style="font-size:0.75rem; color:var(--text-light);">Qualified Commission</div>
+          </div>
+          <div style="text-align:center; padding:0.75rem; background:#e8f5e9; border-radius:8px;">
+            <div style="font-size:1.1rem; font-weight:700;">&pound;<%= teamAggTotals.paid.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+            <div style="font-size:0.75rem; color:var(--text-light);">Total Paid</div>
+          </div>
+          <div style="text-align:center; padding:0.75rem; background:var(--plum-lightest); border-radius:8px;">
+            <div style="font-size:1.1rem; font-weight:700;">&pound;<%= teamAggTotals.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></div>
+            <div style="font-size:0.75rem; color:var(--text-light);">In the Bank</div>
           </div>
         </div>
 
@@ -131,8 +174,10 @@
                 <th>% Target</th>
                 <th>MRGP</th>
                 <th>Target</th>
-                <th>% Target</th>
                 <th>Commission</th>
+                <th>Qualified</th>
+                <th>In Bank</th>
+                <th>Paid</th>
               </tr>
             </thead>
             <tbody>
@@ -149,12 +194,10 @@
                 </td>
                 <td>&pound;<%= m.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
                 <td>&pound;<%= m.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
-                <td>
-                  <% if (m.mrgpTarget > 0) { %>
-                    <span class="badge <%= (m.mrgp/m.mrgpTarget*100) >= 100 ? 'badge-paid' : ((m.mrgp/m.mrgpTarget*100) >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= (m.mrgp/m.mrgpTarget*100).toFixed(0) %>%</span>
-                  <% } else { %>-<% } %>
-                </td>
-                <td style="font-weight:600;">&pound;<%= m.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= m.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td style="font-weight:600;">&pound;<%= m.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= m.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= m.paid.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
               </tr>
               <% }) %>
             </tbody>
@@ -167,8 +210,10 @@
                 <td><% if (teamAggTotals.oneOffTarget > 0) { %><%= (teamAggTotals.oneOffGP/teamAggTotals.oneOffTarget*100).toFixed(0) %>%<% } else { %>-<% } %></td>
                 <td>&pound;<%= teamAggTotals.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
                 <td>&pound;<%= teamAggTotals.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
-                <td><% if (teamAggTotals.mrgpTarget > 0) { %><%= (teamAggTotals.mrgp/teamAggTotals.mrgpTarget*100).toFixed(0) %>%<% } else { %>-<% } %></td>
                 <td>&pound;<%= teamAggTotals.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= teamAggTotals.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= teamAggTotals.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+                <td>&pound;<%= teamAggTotals.paid.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
               </tr>
             </tfoot>
           </table>
@@ -179,7 +224,13 @@
     <!-- Individual breakdowns -->
     <% teamHistory.forEach(th => { %>
     <div class="card">
-      <h2 style="margin-bottom:0.75rem;"><%= th.name %></h2>
+      <h2 style="margin-bottom:0.25rem;"><%= th.name %></h2>
+      <div style="display:flex; gap:1rem; margin-bottom:0.75rem; font-size:0.85rem; color:var(--text-light);">
+        <span>Targets met: <strong><%= th.totals.monthsMet %>/<%= th.monthlyData.length %></strong></span>
+        <span>Qualified: <strong>&pound;<%= th.totals.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></strong></span>
+        <span>In Bank: <strong>&pound;<%= th.totals.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></strong></span>
+        <span>Paid: <strong>&pound;<%= th.totals.paid.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></strong></span>
+      </div>
       <div class="table-wrapper">
         <table>
           <thead>
@@ -190,15 +241,23 @@
               <th>Target</th>
               <th>% Target</th>
               <th>MRGP</th>
-              <th>Target</th>
-              <th>% Target</th>
               <th>Commission</th>
+              <th>Qualified</th>
+              <th>In Bank</th>
+              <th>Paid</th>
             </tr>
           </thead>
           <tbody>
             <% th.monthlyData.forEach(h => { %>
-            <tr>
-              <td><%= h.month %></td>
+            <tr style="<%= !h.targetMet && h.oneOffTarget > 0 ? 'opacity:0.6;' : '' %>">
+              <td>
+                <%= h.month %>
+                <% if (h.targetMet) { %>
+                  <span style="color:var(--success); font-size:0.8rem;">&#10003;</span>
+                <% } else if (h.oneOffTarget > 0) { %>
+                  <span style="color:var(--danger); font-size:0.8rem;">&#10007;</span>
+                <% } %>
+              </td>
               <td><%= h.dealCount %></td>
               <td>&pound;<%= h.oneOffGP.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
               <td>&pound;<%= h.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
@@ -208,13 +267,16 @@
                 <% } else { %>-<% } %>
               </td>
               <td>&pound;<%= h.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
-              <td>&pound;<%= h.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
-              <td>
-                <% if (h.mrgpTarget > 0) { %>
-                  <span class="badge <%= h.mrgpPct >= 100 ? 'badge-paid' : (h.mrgpPct >= 75 ? 'badge-approved' : 'badge-pending') %>"><%= h.mrgpPct.toFixed(0) %>%</span>
+              <td>&pound;<%= h.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              <td style="font-weight:600;">
+                <% if (h.targetMet) { %>
+                  &pound;<%= h.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %>
+                <% } else if (h.oneOffTarget > 0) { %>
+                  <span style="color:var(--danger);">&pound;0.00</span>
                 <% } else { %>-<% } %>
               </td>
-              <td style="font-weight:600;">&pound;<%= h.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              <td>&pound;<%= h.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              <td>&pound;<%= h.paid.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
             </tr>
             <% }) %>
           </tbody>
@@ -226,15 +288,19 @@
               <td>&pound;<%= th.totals.oneOffTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
               <td><% if (th.totals.oneOffTarget > 0) { %><%= (th.totals.oneOffGP/th.totals.oneOffTarget*100).toFixed(0) %>%<% } else { %>-<% } %></td>
               <td>&pound;<%= th.totals.mrgp.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
-              <td>&pound;<%= th.totals.mrgpTarget.toLocaleString('en-GB', {minimumFractionDigits:0, maximumFractionDigits:0}) %></td>
-              <td><% if (th.totals.mrgpTarget > 0) { %><%= (th.totals.mrgp/th.totals.mrgpTarget*100).toFixed(0) %>%<% } else { %>-<% } %></td>
               <td>&pound;<%= th.totals.commission.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              <td>&pound;<%= th.totals.qualifiedComm.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              <td>&pound;<%= th.totals.inTheBank.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
+              <td>&pound;<%= th.totals.paid.toLocaleString('en-GB', {minimumFractionDigits:2}) %></td>
             </tr>
           </tfoot>
         </table>
       </div>
     </div>
     <% }) %>
+    <p style="font-size:0.8rem; color:var(--text-light); margin-top:0.5rem;">
+      Monthly target must be met to qualify for commission. "In the Bank" = approved &amp; delivered, awaiting payment.
+    </p>
   </div>
 
   <!-- Pending Approval -->

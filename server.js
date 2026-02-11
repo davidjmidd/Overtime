@@ -632,6 +632,15 @@ app.get('/commissions/dashboard', requireLogin, (req, res) => {
   const totalCommission = deals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
   const deliveredComm = deals.filter(d => d.project_delivered).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
 
+  // Target-met gating: if target not met this month, commission = £0
+  const targetMet = target && target.one_off_gp_target > 0 ? totalOneOffGP >= target.one_off_gp_target : false;
+  const qualifiedCommission = targetMet ? totalCommission : 0;
+
+  // "In the bank" - approved & delivered but not yet paid
+  const inTheBank = deals.filter(d => d.approved && d.project_delivered && !d.paid)
+    .reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+  const inTheBankCount = deals.filter(d => d.approved && d.project_delivered && !d.paid).length;
+
   const managers = db.prepare("SELECT email, name FROM users WHERE role = 'manager' ORDER BY name").all();
 
   // 6-month performance history
@@ -647,12 +656,19 @@ app.get('/commissions/dashboard', requireLogin, (req, res) => {
     const mrgp = qualifying.reduce((s, d) => s + d.mrgp, 0);
     const commission = mDeals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
     const paid = mDeals.filter(d => d.paid).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+    const oneOffTarget = mTarget ? mTarget.one_off_gp_target : 0;
+    const mrgpTarget = mTarget ? mTarget.mrgp_target : 0;
+    const mTargetMet = oneOffTarget > 0 ? oneOffGP >= oneOffTarget : false;
+    const qualifiedComm = mTargetMet ? commission : 0;
+    // In the bank for this month
+    const mInTheBank = mDeals.filter(d => d.approved && d.project_delivered && !d.paid)
+      .reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
     return {
       month: m, dealCount: mDeals.length, oneOffGP, mrgp, commission, paid,
-      oneOffTarget: mTarget ? mTarget.one_off_gp_target : 0,
-      mrgpTarget: mTarget ? mTarget.mrgp_target : 0,
-      oneOffPct: mTarget && mTarget.one_off_gp_target > 0 ? (oneOffGP / mTarget.one_off_gp_target * 100) : 0,
-      mrgpPct: mTarget && mTarget.mrgp_target > 0 ? (mrgp / mTarget.mrgp_target * 100) : 0
+      oneOffTarget, mrgpTarget,
+      oneOffPct: oneOffTarget > 0 ? (oneOffGP / oneOffTarget * 100) : 0,
+      mrgpPct: mrgpTarget > 0 ? (mrgp / mrgpTarget * 100) : 0,
+      targetMet: mTargetMet, qualifiedComm, inTheBank: mInTheBank
     };
   });
   const historyTotals = {
@@ -660,13 +676,18 @@ app.get('/commissions/dashboard', requireLogin, (req, res) => {
     oneOffGP: history.reduce((s, h) => s + h.oneOffGP, 0),
     mrgp: history.reduce((s, h) => s + h.mrgp, 0),
     commission: history.reduce((s, h) => s + h.commission, 0),
+    qualifiedComm: history.reduce((s, h) => s + h.qualifiedComm, 0),
     paid: history.reduce((s, h) => s + h.paid, 0),
+    inTheBank: history.reduce((s, h) => s + h.inTheBank, 0),
     oneOffTarget: history.reduce((s, h) => s + h.oneOffTarget, 0),
-    mrgpTarget: history.reduce((s, h) => s + h.mrgpTarget, 0)
+    mrgpTarget: history.reduce((s, h) => s + h.mrgpTarget, 0),
+    monthsMet: history.filter(h => h.targetMet).length,
+    monthsTotal: history.length
   };
 
   res.render('commissions/dashboard', {
-    deals, target, months, activeMonth, totalOneOffGP, totalMRGP, totalCommission, deliveredComm, managers, history, historyTotals
+    deals, target, months, activeMonth, totalOneOffGP, totalMRGP, totalCommission, deliveredComm,
+    managers, history, historyTotals, targetMet, qualifiedCommission, inTheBank, inTheBankCount
   });
 });
 
@@ -787,12 +808,19 @@ app.get('/commissions/manager', requireManager, (req, res) => {
       const oneOffGP = qualifying.reduce((s, d) => s + d.one_off_gp, 0);
       const mrgp = qualifying.reduce((s, d) => s + d.mrgp, 0);
       const commission = mDeals.reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+      const paid = mDeals.filter(d => d.paid).reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
+      const oneOffTarget = mTarget ? mTarget.one_off_gp_target : 0;
+      const mrgpTarget = mTarget ? mTarget.mrgp_target : 0;
+      const targetMet = oneOffTarget > 0 ? oneOffGP >= oneOffTarget : false;
+      const qualifiedComm = targetMet ? commission : 0;
+      const inTheBank = mDeals.filter(d => d.approved && d.project_delivered && !d.paid)
+        .reduce((s, d) => s + d.total_commission + d.manual_adjustment, 0);
       return {
-        month: m, dealCount: mDeals.length, oneOffGP, mrgp, commission,
-        oneOffTarget: mTarget ? mTarget.one_off_gp_target : 0,
-        mrgpTarget: mTarget ? mTarget.mrgp_target : 0,
-        oneOffPct: mTarget && mTarget.one_off_gp_target > 0 ? (oneOffGP / mTarget.one_off_gp_target * 100) : 0,
-        mrgpPct: mTarget && mTarget.mrgp_target > 0 ? (mrgp / mTarget.mrgp_target * 100) : 0
+        month: m, dealCount: mDeals.length, oneOffGP, mrgp, commission, paid,
+        oneOffTarget, mrgpTarget,
+        oneOffPct: oneOffTarget > 0 ? (oneOffGP / oneOffTarget * 100) : 0,
+        mrgpPct: mrgpTarget > 0 ? (mrgp / mrgpTarget * 100) : 0,
+        targetMet, qualifiedComm, inTheBank
       };
     });
     const totals = {
@@ -800,8 +828,12 @@ app.get('/commissions/manager', requireManager, (req, res) => {
       oneOffGP: monthlyData.reduce((s, h) => s + h.oneOffGP, 0),
       mrgp: monthlyData.reduce((s, h) => s + h.mrgp, 0),
       commission: monthlyData.reduce((s, h) => s + h.commission, 0),
+      qualifiedComm: monthlyData.reduce((s, h) => s + h.qualifiedComm, 0),
+      paid: monthlyData.reduce((s, h) => s + h.paid, 0),
+      inTheBank: monthlyData.reduce((s, h) => s + h.inTheBank, 0),
       oneOffTarget: monthlyData.reduce((s, h) => s + h.oneOffTarget, 0),
-      mrgpTarget: monthlyData.reduce((s, h) => s + h.mrgpTarget, 0)
+      mrgpTarget: monthlyData.reduce((s, h) => s + h.mrgpTarget, 0),
+      monthsMet: monthlyData.filter(h => h.targetMet).length
     };
     return { email: te.account_manager_email, name: te.account_manager_name, monthlyData, totals };
   });
@@ -815,6 +847,9 @@ app.get('/commissions/manager', requireManager, (req, res) => {
       oneOffGP: mData.reduce((s, d) => s + d.oneOffGP, 0),
       mrgp: mData.reduce((s, d) => s + d.mrgp, 0),
       commission: mData.reduce((s, d) => s + d.commission, 0),
+      qualifiedComm: mData.reduce((s, d) => s + d.qualifiedComm, 0),
+      paid: mData.reduce((s, d) => s + d.paid, 0),
+      inTheBank: mData.reduce((s, d) => s + d.inTheBank, 0),
       oneOffTarget: mData.reduce((s, d) => s + d.oneOffTarget, 0),
       mrgpTarget: mData.reduce((s, d) => s + d.mrgpTarget, 0)
     };
@@ -824,6 +859,9 @@ app.get('/commissions/manager', requireManager, (req, res) => {
     oneOffGP: teamMonthlyAgg.reduce((s, m) => s + m.oneOffGP, 0),
     mrgp: teamMonthlyAgg.reduce((s, m) => s + m.mrgp, 0),
     commission: teamMonthlyAgg.reduce((s, m) => s + m.commission, 0),
+    qualifiedComm: teamMonthlyAgg.reduce((s, m) => s + m.qualifiedComm, 0),
+    paid: teamMonthlyAgg.reduce((s, m) => s + m.paid, 0),
+    inTheBank: teamMonthlyAgg.reduce((s, m) => s + m.inTheBank, 0),
     oneOffTarget: teamMonthlyAgg.reduce((s, m) => s + m.oneOffTarget, 0),
     mrgpTarget: teamMonthlyAgg.reduce((s, m) => s + m.mrgpTarget, 0)
   };
@@ -926,7 +964,8 @@ app.post('/commissions/payroll/set-target', requirePayroll, (req, res) => {
   const { user_email, month, salary } = req.body;
   if (!user_email || !month || !salary) { req.flash('error', 'All fields required'); return res.redirect('/commissions/payroll'); }
   const sal = parseFloat(salary);
-  const oneOffTarget = sal * 3.5;
+  const monthlySalary = sal / 12;
+  const oneOffTarget = monthlySalary * 3.5;
   const mrgpTarget = oneOffTarget * 0.0625;
   db.prepare(`INSERT INTO commission_targets (user_email, month, salary, one_off_gp_target, mrgp_target)
     VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_email, month) DO UPDATE SET salary=?, one_off_gp_target=?, mrgp_target=?`)
