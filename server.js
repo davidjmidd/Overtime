@@ -318,23 +318,44 @@ app.post('/manager/reject/overtime/:id', requireManager, (req, res) => {
 
 app.get('/payroll', requirePayroll, (req, res) => {
   const monthFilter = req.query.month || '';
+  const staffFilter = req.query.staff || '';
+  const statusFilter = req.query.status || ''; // all, approved, pending, paid, unpaid
 
+  // Get available months for filter
+  const months = db.prepare(`
+    SELECT DISTINCT strftime('%Y-%m', date) as month FROM overtime_entries
+    UNION
+    SELECT DISTINCT strftime('%Y-%m', date) as month FROM nights_away
+    ORDER BY month DESC
+  `).all();
+
+  const activeMonth = monthFilter || (months.length ? months[0].month : '');
+
+  // All staff who have entries (for slicer)
+  const allStaff = db.prepare(`
+    SELECT DISTINCT submitter_email, submitter_name FROM overtime_entries
+    UNION
+    SELECT DISTINCT submitter_email, submitter_name FROM nights_away
+    ORDER BY submitter_name
+  `).all();
+
+  // Base queries for active month
   let overtime, nights;
-  if (monthFilter) {
+  if (activeMonth) {
     overtime = db.prepare(`
       SELECT oe.*, u.overtime_rate
       FROM overtime_entries oe
       LEFT JOIN users u ON u.email = oe.submitter_email
       WHERE strftime('%Y-%m', oe.date) = ?
       ORDER BY oe.submitter_name, oe.date
-    `).all(monthFilter);
+    `).all(activeMonth);
     nights = db.prepare(`
       SELECT na.*, u.nights_away_rate, u.is_field_engineer
       FROM nights_away na
       LEFT JOIN users u ON u.email = na.submitter_email
       WHERE strftime('%Y-%m', na.date) = ?
       ORDER BY na.submitter_name, na.date
-    `).all(monthFilter);
+    `).all(activeMonth);
   } else {
     overtime = db.prepare(`
       SELECT oe.*, u.overtime_rate
@@ -350,45 +371,80 @@ app.get('/payroll', requirePayroll, (req, res) => {
     `).all();
   }
 
-  // Get available months for filter
-  const months = db.prepare(`
-    SELECT DISTINCT strftime('%Y-%m', date) as month FROM overtime_entries
-    UNION
-    SELECT DISTINCT strftime('%Y-%m', date) as month FROM nights_away
-    ORDER BY month DESC
-  `).all();
+  // Apply slicer filters
+  let filteredOT = overtime;
+  let filteredNA = nights;
+  if (staffFilter) {
+    filteredOT = filteredOT.filter(e => e.submitter_email === staffFilter);
+    filteredNA = filteredNA.filter(e => e.submitter_email === staffFilter);
+  }
+  if (statusFilter === 'approved') {
+    filteredOT = filteredOT.filter(e => e.approved && !e.paid);
+    filteredNA = filteredNA.filter(e => e.approved && !e.paid);
+  } else if (statusFilter === 'pending') {
+    filteredOT = filteredOT.filter(e => !e.approved);
+    filteredNA = filteredNA.filter(e => !e.approved);
+  } else if (statusFilter === 'paid') {
+    filteredOT = filteredOT.filter(e => e.paid);
+    filteredNA = filteredNA.filter(e => e.paid);
+  } else if (statusFilter === 'unpaid') {
+    filteredOT = filteredOT.filter(e => !e.paid);
+    filteredNA = filteredNA.filter(e => !e.paid);
+  }
 
-  // Staff summary
-  const staffSummary = db.prepare(`
-    SELECT u.email, u.name, u.overtime_rate, u.nights_away_rate, u.is_field_engineer,
-      COALESCE(ot.total_hours, 0) as total_hours,
-      COALESCE(ot.pending_hours, 0) as pending_hours,
-      COALESCE(ot.approved_hours, 0) as approved_hours,
-      COALESCE(na.total_nights, 0) as total_nights,
-      COALESCE(na.pending_nights, 0) as pending_nights,
-      COALESCE(na.approved_nights, 0) as approved_nights
-    FROM users u
-    LEFT JOIN (
-      SELECT submitter_email,
-        SUM(hours) as total_hours,
-        SUM(CASE WHEN approved = 0 THEN hours ELSE 0 END) as pending_hours,
-        SUM(CASE WHEN approved = 1 THEN hours ELSE 0 END) as approved_hours
-      FROM overtime_entries GROUP BY submitter_email
-    ) ot ON ot.submitter_email = u.email
-    LEFT JOIN (
-      SELECT submitter_email,
-        COUNT(*) as total_nights,
-        SUM(CASE WHEN approved = 0 THEN 1 ELSE 0 END) as pending_nights,
-        SUM(CASE WHEN approved = 1 THEN 1 ELSE 0 END) as approved_nights
-      FROM nights_away GROUP BY submitter_email
-    ) na ON na.submitter_email = u.email
-    WHERE u.role != 'payroll' AND (ot.total_hours > 0 OR na.total_nights > 0)
-    ORDER BY u.name
-  `).all();
+  // Per-staff monthly summary (always for the month, unfiltered by status)
+  const staffEmails = [...new Set([...overtime.map(e => e.submitter_email), ...nights.map(e => e.submitter_email)])];
+  const summary = staffEmails.map(email => {
+    const sOT = overtime.filter(e => e.submitter_email === email);
+    const sNA = nights.filter(e => e.submitter_email === email);
+    const name = sOT[0]?.submitter_name || sNA[0]?.submitter_name || email;
+    const rate = sOT[0]?.overtime_rate || 0;
+    const naRate = sNA[0]?.nights_away_rate || sNA[0]?.rate || 25;
+
+    const totalHours = sOT.reduce((s, e) => s + e.hours, 0);
+    const pendingHours = sOT.filter(e => !e.approved).reduce((s, e) => s + e.hours, 0);
+    const approvedHours = sOT.filter(e => e.approved).reduce((s, e) => s + e.hours, 0);
+
+    const approvedOTCost = sOT.filter(e => e.approved).reduce((s, e) => {
+      return s + (e.is_weekend ? e.hours * rate * 1.5 : e.hours * rate);
+    }, 0);
+    const paidOTCost = sOT.filter(e => e.paid).reduce((s, e) => {
+      return s + (e.is_weekend ? e.hours * rate * 1.5 : e.hours * rate);
+    }, 0);
+    const unpaidApprovedOTCost = sOT.filter(e => e.approved && !e.paid).reduce((s, e) => {
+      return s + (e.is_weekend ? e.hours * rate * 1.5 : e.hours * rate);
+    }, 0);
+
+    const totalNights = sNA.length;
+    const pendingNights = sNA.filter(e => !e.approved).length;
+    const approvedNights = sNA.filter(e => e.approved).length;
+    const paidNights = sNA.filter(e => e.paid).length;
+    const unpaidApprovedNights = sNA.filter(e => e.approved && !e.paid).length;
+
+    const approvedNACost = approvedNights * naRate;
+    const paidNACost = paidNights * naRate;
+    const unpaidApprovedNACost = unpaidApprovedNights * naRate;
+
+    return {
+      email, name, rate, naRate,
+      totalHours, pendingHours, approvedHours,
+      approvedOTCost, paidOTCost, unpaidApprovedOTCost,
+      totalNights, pendingNights, approvedNights, paidNights, unpaidApprovedNights,
+      approvedNACost, paidNACost, unpaidApprovedNACost,
+      totalCost: approvedOTCost + approvedNACost,
+      unpaidReadyOT: sOT.filter(e => e.approved && !e.paid).length,
+      unpaidReadyNA: sNA.filter(e => e.approved && !e.paid).length
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
 
   const users = db.prepare("SELECT * FROM users WHERE role != 'payroll' ORDER BY name").all();
 
-  res.render('payroll', { overtime, nights, months, monthFilter, staffSummary, users });
+  res.render('payroll', {
+    overtime: filteredOT, nights: filteredNA,
+    allOvertime: overtime, allNights: nights,
+    months, activeMonth, summary, users, allStaff,
+    staffFilter, statusFilter
+  });
 });
 
 app.post('/payroll/mark-paid', requirePayroll, (req, res) => {
@@ -429,6 +485,47 @@ app.post('/payroll/update-rate', requirePayroll, (req, res) => {
 
 app.get('/payroll/export', requirePayroll, (req, res) => {
   const month = req.query.month || '';
+  const staff = req.query.staff || '';
+  const status = req.query.status || '';
+  const type = req.query.type || 'overtime'; // overtime or nights
+
+  if (type === 'nights') {
+    const conditions = [];
+    const params = [];
+    if (month) { conditions.push("strftime('%Y-%m', na.date) = ?"); params.push(month); }
+    if (staff) { conditions.push('na.submitter_email = ?'); params.push(staff); }
+    if (status === 'approved') { conditions.push('na.approved = 1 AND na.paid = 0'); }
+    else if (status === 'pending') { conditions.push('na.approved = 0'); }
+    else if (status === 'paid') { conditions.push('na.paid = 1'); }
+    else if (status === 'unpaid') { conditions.push('na.paid = 0'); }
+
+    let query = `SELECT na.submitter_name as Name, na.submitter_email as Email, na.date as Date,
+      na.description as Description, COALESCE(u.nights_away_rate, na.rate, 25) as Rate,
+      CASE WHEN na.approved = 1 THEN 'Approved' ELSE 'Pending' END as Status,
+      CASE WHEN na.paid = 1 THEN 'Yes' ELSE 'No' END as Paid,
+      na.paid_month as 'Paid Month'
+      FROM nights_away na
+      LEFT JOIN users u ON u.email = na.submitter_email`;
+    if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
+    query += ` ORDER BY na.submitter_name, na.date`;
+    const rows = db.prepare(query).all(...params);
+    const csv = stringify(rows, { header: true });
+    res.setHeader('Content-Type', 'text/csv');
+    const fname = `nights-away-${month || 'all'}${staff ? '-' + staff.split('@')[0] : ''}${status ? '-' + status : ''}.csv`;
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    return res.send(csv);
+  }
+
+  // Default: overtime export
+  const conditions = [];
+  const params = [];
+  if (month) { conditions.push("strftime('%Y-%m', oe.date) = ?"); params.push(month); }
+  if (staff) { conditions.push('oe.submitter_email = ?'); params.push(staff); }
+  if (status === 'approved') { conditions.push('oe.approved = 1 AND oe.paid = 0'); }
+  else if (status === 'pending') { conditions.push('oe.approved = 0'); }
+  else if (status === 'paid') { conditions.push('oe.paid = 1'); }
+  else if (status === 'unpaid') { conditions.push('oe.paid = 0'); }
+
   let query = `
     SELECT oe.submitter_name as Name, oe.submitter_email as Email, oe.date as Date,
       oe.hours as Hours, oe.is_weekend as Weekend, u.overtime_rate as Rate,
@@ -437,22 +534,20 @@ app.get('/payroll/export', requirePayroll, (req, res) => {
       oe.halo_ticket_ref as 'Ticket Ref', oe.client as Client,
       oe.description as Description,
       CASE WHEN oe.approved = 1 THEN 'Approved' ELSE 'Pending' END as Status,
+      CASE WHEN oe.paid = 1 THEN 'Yes' ELSE 'No' END as Paid,
       oe.paid_month as 'Paid Month'
     FROM overtime_entries oe
     LEFT JOIN users u ON u.email = oe.submitter_email
   `;
-  const params = [];
-  if (month) {
-    query += ` WHERE strftime('%Y-%m', oe.date) = ?`;
-    params.push(month);
-  }
+  if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
   query += ` ORDER BY oe.submitter_name, oe.date`;
 
   const rows = db.prepare(query).all(...params);
   const csv = stringify(rows, { header: true });
 
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', `attachment; filename="overtime-export-${month || 'all'}.csv"`);
+  const fname = `overtime-${month || 'all'}${staff ? '-' + staff.split('@')[0] : ''}${status ? '-' + status : ''}.csv`;
+  res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
   res.send(csv);
 });
 
